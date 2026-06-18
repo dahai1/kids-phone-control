@@ -26,20 +26,17 @@ jobs:
       - name: Install Bubblewrap
         run: npm install -g @bubblewrap/cli
 
-      - name: Generate TWA project
+      - name: Init TWA project
         run: |
           mkdir -p twa-build
           cd twa-build
 
-          # Initialize project (non-interactive via pre-filled config)
-          bubblewrap init --manifest "https://dahai1.github.io/kids-phone-control/manifest.json" --directory .
-
-          # Update twa-manifest.json with correct settings
-          cat > twa-manifest.json << 'EOF'
+          # Pre-create twa-manifest.json so bubblewrap doesn't prompt
+          cat > twa-manifest.json << 'MANIFESTEOF'
           {
             "packageId": "app.kidscontrol.phonetimer",
             "host": "dahai1.github.io",
-            "name": "儿童管控 - 警察叔叔来电",
+            "name": "儿童管控",
             "launcherName": "儿童管控",
             "display": "standalone",
             "themeColor": "#000000",
@@ -55,7 +52,10 @@ jobs:
               "alias": "kidscontrol"
             }
           }
-          EOF
+          MANIFESTEOF
+
+          # Pipe "n" to answer "No" to JDK install prompt
+          echo "n" | bubblewrap init --manifest "https://dahai1.github.io/kids-phone-control/manifest.json" --directory .
 
       - name: Generate signing key
         run: |
@@ -66,7 +66,8 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android \
             -keypass android \
-            -dname "CN=Kids Control, OU=App, O=KidsControl, L=Beijing, ST=Beijing, C=CN"
+            -dname "CN=Kids Control, OU=App, O=KidsControl, L=Beijing, ST=Beijing, C=CN" \
+            -noprompt
 
       - name: Build APK
         run: |
@@ -78,3 +79,4 @@ jobs:
         with:
           name: kids-control-apk
           path: twa-build/app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn
