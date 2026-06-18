@@ -1,0 +1,2082 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<!--
+  ============================================================
+  儿童手机管控工具 - 警察叔叔来电版
+  版本: 2.0
+  用途: 管控儿童玩手机时长，超时弹出警察数字人来电界面
+  特性: 全资源内嵌 / PWA独立窗口 / 后台计时 / 防刷新 / 防退出
+  配套文件: manifest.json / sw.js（需与index.html同目录）
+  ============================================================
+
+  ★★★ 手机集成部署分步教程 ★★★
+
+  【方式一：PWA桌面快捷方式（最简单）】
+  步骤1: 电脑保存整个文件夹（index.html + manifest.json + sw.js）
+  步骤2: 传输到手机
+         - Android: USB连接 → 复制到手机 "Download" 文件夹
+         - iPhone: AirDrop / 微信发送 / iCloud
+         - 通用: QQ/微信发给"文件传输助手"，手机下载
+  步骤3: 手机文件管理器找到 index.html → 用 Chrome 打开
+  步骤4: Chrome右上角 ⋮ →「添加到主屏幕」→ 命名「儿童管控」
+  步骤5: 桌面点击图标 → 全屏运行（无浏览器导航栏，如同原生APP）
+  注意: 3个文件必须在同一目录！
+
+  【方式二：打包为Android APK（支持后台持续计时）】
+
+  [方案A: PWA Builder 在线打包（免费）]
+  步骤1: 先将3个文件托管到免费静态服务：
+         GitHub Pages: 新建仓库 → 上传3个文件 → Settings → Pages → Save → 获得URL
+         或用 Netlify/Vercel: 拖拽整个文件夹到网页 → 获得URL
+  步骤2: 访问 https://pwabuilder.com → 输入URL → Start
+  步骤3: 右侧检测到PWA → Package for Stores → Android → 下载APK
+  步骤4: APK传到手机安装 → 长按图标 → 应用信息 → 开启悬浮窗权限
+
+  [方案B: WebViewGold（付费，支持后台运行防杀）]
+  步骤1: 下载 WebViewGold App Template
+  步骤2: 将3个文件放入 assets 目录
+  步骤3: config.java 中开启:
+         allowBackgroundService = true  （后台运行）
+         preventSwipeClose = true       （禁止滑动关闭）
+         enableWakeLock = true          （防系统锁屏终止计时）
+  步骤4: Android Studio → Build → Generate APK
+
+  [方案C: 免费在线打包网站]
+  pwabuilder.com / appmaker.xyz / appsgeyser.com / gonative.io
+
+  [APK安装后必须开启的权限]
+  ✅ 自启动/后台运行 → 允许（计时器不会被杀）
+  ✅ 悬浮窗权限 → 允许（超时弹窗覆盖其他APP）
+  ✅ 电池优化 → 不优化（防止系统休眠终止计时）
+  ✅ 通知权限 → 允许（后台到期提醒）
+
+  【注意事项】
+      - 首次打开需点击"开始管控"按钮（浏览器要求交互后才允许音频播放）
+      - 3个文件必须同目录: index.html / manifest.json / sw.js
+      - HTTPS部署时Service Worker自动生效（支持离线缓存+后台通知）
+      - file://协议下SW无法注册，但PWA添加到桌面后不受影响
+      - PWA添加到桌面后以standalone模式全屏运行，沉浸式体验
+      - 音频使用Web Speech API + Web Audio API，零外部依赖
+      - 桌面图标已内置在manifest.json中（SVG矢量图标）
+      - 计时器使用时间戳算法，切后台不断计时
+  ============================================================
+-->
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="儿童管控">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<meta name="description" content="儿童手机使用时间管控工具">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<link rel="manifest" href="manifest.json">
+
+<title>儿童手机管控 - 警察叔叔来电</title>
+
+<style>
+/* ============================================================
+   CSS RESET & 全局样式
+   ============================================================ */
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --color-primary: #FF6B35;
+    --color-danger: #E63946;
+    --color-dark: #1A1A2E;
+    --color-darker: #0F0F23;
+    --color-light: #F8F9FA;
+    --color-muted: #6C757D;
+    --color-success: #2ECC71;
+    --color-white: #FFFFFF;
+    --color-black: #000000;
+    --shadow-lg: 0 20px 60px rgba(0,0,0,0.3);
+    --shadow-md: 0 8px 30px rgba(0,0,0,0.15);
+    --radius-lg: 24px;
+    --radius-md: 16px;
+    --radius-sm: 12px;
+    --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: var(--font-stack);
+    background: var(--color-dark);
+    color: var(--color-light);
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
+    -webkit-overflow-scrolling: none;
+}
+
+/* ============================================================
+   页面容器 & 状态切换
+   ============================================================ */
+.app-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+.screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.screen.hidden {
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.95);
+}
+
+/* ============================================================
+   SETUP 页面 — 输入时长
+   ============================================================ */
+#setup-screen {
+    background: linear-gradient(135deg, #1A1A2E 0%, #16213E 50%, #0F3460 100%);
+}
+
+.setup-card {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: var(--radius-lg);
+    padding: 40px 28px 32px;
+    width: 100%;
+    max-width: 380px;
+    text-align: center;
+    box-shadow: var(--shadow-lg);
+}
+
+.app-icon {
+    font-size: 64px;
+    margin-bottom: 12px;
+    animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+}
+
+.app-title {
+    font-size: 26px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    background: linear-gradient(135deg, #FFD93D, #FF6B35);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.app-subtitle {
+    font-size: 14px;
+    color: var(--color-muted);
+    margin-bottom: 28px;
+}
+
+.input-group {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.input-group label {
+    font-size: 16px;
+    color: var(--color-light);
+    white-space: nowrap;
+}
+
+.minute-input {
+    width: 100px;
+    height: 56px;
+    background: rgba(255,255,255,0.08);
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: var(--radius-md);
+    color: var(--color-white);
+    font-size: 28px;
+    font-weight: 700;
+    text-align: center;
+    font-family: var(--font-stack);
+    outline: none;
+    transition: border-color 0.3s, box-shadow 0.3s;
+    -webkit-appearance: none;
+}
+
+.minute-input:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 4px rgba(255,107,53,0.2);
+}
+
+.minute-input::-webkit-inner-spin-button,
+.minute-input::-webkit-outer-spin-button {
+    opacity: 1;
+    height: 40px;
+}
+
+.preset-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 28px;
+}
+
+.preset-btn {
+    padding: 10px 18px;
+    border-radius: 50px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.05);
+    color: var(--color-light);
+    font-size: 14px;
+    font-family: var(--font-stack);
+    cursor: pointer;
+    transition: all 0.25s;
+    white-space: nowrap;
+}
+
+.preset-btn:hover,
+.preset-btn:active {
+    background: rgba(255,107,53,0.2);
+    border-color: var(--color-primary);
+}
+
+.preset-btn.active {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: white;
+    font-weight: 600;
+}
+
+.btn-start {
+    width: 100%;
+    height: 54px;
+    border: none;
+    border-radius: 50px;
+    background: linear-gradient(135deg, #FF6B35, #E63946);
+    color: white;
+    font-size: 18px;
+    font-weight: 700;
+    font-family: var(--font-stack);
+    cursor: pointer;
+    letter-spacing: 2px;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 8px 25px rgba(230,57,70,0.3);
+}
+
+.btn-start:active {
+    transform: scale(0.96);
+    box-shadow: 0 4px 15px rgba(230,57,70,0.2);
+}
+
+/* ============================================================
+   TIMER 页面 — 倒计时显示
+   ============================================================ */
+#timer-screen {
+    background: linear-gradient(180deg, #0F0F23 0%, #1A1A2E 40%, #16213E 100%);
+}
+
+.timer-header {
+    font-size: 16px;
+    color: var(--color-muted);
+    margin-bottom: 10px;
+    letter-spacing: 4px;
+}
+
+.timer-circle {
+    width: 220px;
+    height: 220px;
+    border-radius: 50%;
+    border: 6px solid rgba(255,255,255,0.1);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 30px;
+    position: relative;
+    box-shadow: 0 0 60px rgba(255,107,53,0.15), inset 0 0 30px rgba(0,0,0,0.3);
+    background: radial-gradient(circle at center, rgba(255,107,53,0.05) 0%, transparent 70%);
+}
+
+.timer-circle::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    border: 6px solid transparent;
+    border-top-color: var(--color-primary);
+    border-right-color: var(--color-primary);
+    animation: spin 3s linear infinite;
+    opacity: 0.6;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.timer-circle.urgent::before {
+    border-top-color: var(--color-danger);
+    border-right-color: var(--color-danger);
+    animation-duration: 1s;
+    opacity: 1;
+}
+
+.timer-display {
+    font-size: 56px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    letter-spacing: 2px;
+    color: var(--color-white);
+}
+
+.timer-label {
+    font-size: 13px;
+    color: var(--color-muted);
+    letter-spacing: 2px;
+    margin-top: 4px;
+}
+
+.timer-actions {
+    display: flex;
+    gap: 16px;
+    width: 100%;
+    max-width: 320px;
+}
+
+.btn-timer {
+    flex: 1;
+    height: 48px;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 50px;
+    background: rgba(255,255,255,0.05);
+    color: var(--color-light);
+    font-size: 15px;
+    font-weight: 600;
+    font-family: var(--font-stack);
+    cursor: pointer;
+    transition: all 0.25s;
+}
+
+.btn-timer:active {
+    transform: scale(0.95);
+}
+
+.btn-timer.stop {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+}
+
+.btn-timer.reset {
+    border-color: var(--color-muted);
+    color: var(--color-muted);
+}
+
+.status-bar {
+    margin-top: 20px;
+    padding: 8px 20px;
+    border-radius: 50px;
+    background: rgba(255,255,255,0.05);
+    font-size: 13px;
+    color: var(--color-muted);
+}
+
+.status-bar .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-success);
+    margin-right: 6px;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* ============================================================
+   OVERLAY 页面 — 警察叔叔来电（全屏强制弹窗）
+   ============================================================ */
+#overlay-screen {
+    background: #000000;
+    z-index: 99999;
+    flex-direction: column;
+    padding: 0;
+}
+
+.overlay-content {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px 30px;
+    position: relative;
+}
+
+/* 顶部红色闪烁条 */
+.alert-strip {
+    width: 100%;
+    padding: 8px 0;
+    background: #CC0000;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    animation: alertFlash 0.8s infinite;
+    flex-shrink: 0;
+}
+
+@keyframes alertFlash {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* 来电标题 */
+.call-title {
+    font-size: 22px;
+    font-weight: 800;
+    margin: 32px 0 8px;
+    letter-spacing: 4px;
+    color: #FFFFFF;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.call-subtitle {
+    font-size: 13px;
+    color: #999;
+    margin-bottom: 20px;
+    letter-spacing: 2px;
+    flex-shrink: 0;
+}
+
+/* 视频占位区 — 模拟视频通话中的卡通警察数字人 */
+.video-placeholder {
+    width: 75vw;
+    max-width: 320px;
+    aspect-ratio: 3/4;
+    background: linear-gradient(180deg, #4A90D9 0%, #2C5F8A 30%, #1E4D7B 70%, #163A5C 100%);
+    border-radius: var(--radius-lg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid rgba(255,255,255,0.2);
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+    margin-bottom: 24px;
+    box-shadow: 0 0 40px rgba(74,144,217,0.3), inset 0 0 60px rgba(0,0,0,0.1);
+}
+
+/* 视频画面中的柔和光晕 */
+.video-placeholder::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 35%, rgba(255,255,255,0.1) 0%, transparent 60%);
+    z-index: 5;
+    pointer-events: none;
+}
+
+/* 卡通警察SVG容器 */
+.police-avatar {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.police-avatar svg {
+    width: 95%;
+    height: 95%;
+    filter: drop-shadow(0 8px 20px rgba(0,0,0,0.2));
+}
+
+/* 警察头部组 — 轻微点头动画 */
+.officer-head-group {
+    animation: gentleNod 4s ease-in-out infinite;
+    transform-origin: 50% 42%;
+}
+
+@keyframes gentleNod {
+    0%, 100% { transform: rotate(0deg) translateY(0); }
+    25% { transform: rotate(1.5deg) translateY(-3px); }
+    50% { transform: rotate(0deg) translateY(0); }
+    75% { transform: rotate(-1deg) translateY(-2px); }
+}
+
+/* 眼睛眨眼动画 */
+.officer-eye-left, .officer-eye-right {
+    animation: blink 4s ease-in-out infinite;
+}
+
+.officer-eye-right {
+    animation-delay: 0.15s;
+}
+
+@keyframes blink {
+    0%, 44%, 48%, 100% { transform: scaleY(1); }
+    46% { transform: scaleY(0.05); }
+}
+
+/* 身体轻微呼吸动画 */
+.officer-body-group {
+    animation: breathe 3s ease-in-out infinite;
+    transform-origin: 50% 75%;
+}
+
+@keyframes breathe {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.008); }
+}
+
+/* 卡通脸颊红晕 */
+.officer-cheek {
+    animation: blush 3s ease-in-out infinite;
+}
+
+@keyframes blush {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 0.9; }
+}
+
+/* 视频通话UI覆盖层 */
+.video-ui-overlay {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    z-index: 6;
+    pointer-events: none;
+}
+
+.video-ui-badge {
+    background: rgba(0,0,0,0.4);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 30px;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.signal-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 14px;
+}
+
+.signal-bar {
+    width: 3px;
+    background: white;
+    border-radius: 1px;
+    animation: signalPulse 1.2s ease-in-out infinite alternate;
+}
+
+.signal-bar:nth-child(1) { height: 4px; animation-delay: 0s; }
+.signal-bar:nth-child(2) { height: 7px; animation-delay: 0.15s; }
+.signal-bar:nth-child(3) { height: 10px; animation-delay: 0.3s; }
+.signal-bar:nth-child(4) { height: 14px; animation-delay: 0.45s; }
+
+@keyframes signalPulse {
+    0% { opacity: 0.4; }
+    100% { opacity: 1; }
+}
+
+/* 信号干扰特效 — 模拟真实视频通话 */
+.video-glitch {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(255,255,255,0.015) 2px,
+        rgba(255,255,255,0.015) 4px
+    );
+    z-index: 2;
+    pointer-events: none;
+}
+
+.video-scanline {
+    position: absolute;
+    width: 100%;
+    height: 3px;
+    background: rgba(255,255,255,0.03);
+    z-index: 3;
+    pointer-events: none;
+    animation: scanDown 3s linear infinite;
+}
+
+@keyframes scanDown {
+    0% { top: -3px; }
+    100% { top: 100%; }
+}
+
+/* 通话中文字 */
+.call-status {
+    font-size: 13px;
+    color: #00FF88;
+    margin-top: 12px;
+    letter-spacing: 2px;
+    z-index: 4;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+/* 视频指示小点 */
+.video-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #00FF88;
+    display: inline-block;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+/* 劝导文字 */
+.warning-text {
+    font-size: 14px;
+    color: #FFD93D;
+    text-align: center;
+    line-height: 1.8;
+    margin: 10px 0 20px;
+    padding: 0 20px;
+    flex-shrink: 0;
+    letter-spacing: 1px;
+}
+
+.warning-text .highlight {
+    color: #FF6B35;
+    font-weight: 700;
+    font-size: 15px;
+}
+
+/* 播放状态指示器 */
+.audio-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 6px 16px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 50px;
+    flex-shrink: 0;
+}
+
+.audio-bar {
+    width: 4px;
+    height: 16px;
+    background: #00FF88;
+    border-radius: 2px;
+    animation: audioBar 0.5s ease-in-out infinite alternate;
+}
+
+.audio-bar:nth-child(2) { animation-delay: 0.1s; height: 22px; }
+.audio-bar:nth-child(3) { animation-delay: 0.2s; height: 12px; }
+.audio-bar:nth-child(4) { animation-delay: 0.3s; height: 20px; }
+.audio-bar:nth-child(5) { animation-delay: 0.4s; height: 14px; }
+
+@keyframes audioBar {
+    to { transform: scaleY(0.4); }
+}
+
+/* 家长验证区域 */
+.parent-verify {
+    width: 100%;
+    max-width: 340px;
+    margin-top: auto;
+    padding: 20px;
+    background: rgba(255,255,255,0.03);
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255,255,255,0.08);
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.verify-title {
+    font-size: 12px;
+    color: #666;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+}
+
+.verify-code-display {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: 12px;
+    color: #FFD93D;
+    margin-bottom: 14px;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+}
+
+.verify-input-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    align-items: center;
+}
+
+.verify-input {
+    width: 120px;
+    height: 44px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    color: white;
+    font-size: 20px;
+    text-align: center;
+    letter-spacing: 8px;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    outline: none;
+    -webkit-appearance: none;
+}
+
+.verify-input:focus {
+    border-color: #FFD93D;
+}
+
+.verify-confirm-btn {
+    height: 44px;
+    padding: 0 20px;
+    background: #333;
+    border: 1px solid #555;
+    border-radius: 8px;
+    color: #AAA;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: var(--font-stack);
+    cursor: pointer;
+    transition: all 0.3s;
+    white-space: nowrap;
+}
+
+.verify-confirm-btn:active {
+    background: #555;
+}
+
+.verify-confirm-btn.success {
+    background: var(--color-success);
+    border-color: var(--color-success);
+    color: white;
+}
+
+.verify-hint {
+    font-size: 11px;
+    color: #555;
+    margin-top: 10px;
+}
+
+/* ============================================================
+   响应式适配
+   ============================================================ */
+@media (max-width: 360px) {
+    .timer-display { font-size: 44px; }
+    .timer-circle { width: 180px; height: 180px; }
+    .setup-card { padding: 28px 18px 24px; }
+    .app-title { font-size: 22px; }
+    .video-placeholder { width: 70vw; }
+    .call-title { font-size: 18px; }
+}
+
+@media (min-width: 768px) {
+    .setup-card { max-width: 420px; }
+    .video-placeholder { max-width: 280px; aspect-ratio: 3/4; }
+}
+
+/* 竖屏锁定提示（仅用于宽屏设备） */
+@media (orientation: landscape) and (max-height: 500px) {
+    #setup-screen::after,
+    #timer-screen::after,
+    #overlay-screen::after {
+        content: '📱 请竖屏使用';
+        position: fixed;
+        inset: 0;
+        background: #000;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        z-index: 999999;
+    }
+}
+</style>
+</head>
+<body>
+
+<div class="app-container">
+
+    <!-- ========================================================
+         SETUP 页面：设置使用时长
+         ======================================================== -->
+    <div id="setup-screen" class="screen">
+        <div class="setup-card">
+            <div class="app-icon">⏰</div>
+            <h1 class="app-title">儿童手机管控</h1>
+            <p class="app-subtitle">设置今日使用时长，超时警察叔叔会来电哦~</p>
+
+            <div class="input-group">
+                <label for="minutesInput">使用时长</label>
+                <input type="number" id="minutesInput" class="minute-input"
+                       value="30" min="1" max="480" inputmode="numeric">
+                <label>分钟</label>
+            </div>
+
+            <div class="preset-buttons">
+                <button class="preset-btn" onclick="setPreset(15)">15分钟</button>
+                <button class="preset-btn active" onclick="setPreset(30)">30分钟</button>
+                <button class="preset-btn" onclick="setPreset(45)">45分钟</button>
+                <button class="preset-btn" onclick="setPreset(60)">60分钟</button>
+            </div>
+
+            <button class="btn-start" onclick="startTimer()">
+                🛡️ 开始管控
+            </button>
+        </div>
+    </div>
+
+    <!-- ========================================================
+         TIMER 页面：倒计时运行中
+         ======================================================== -->
+    <div id="timer-screen" class="screen hidden">
+        <div class="timer-header">⏳ 剩余使用时间</div>
+
+        <div class="timer-circle" id="timerCircle">
+            <div class="timer-display" id="timerDisplay">30:00</div>
+            <div class="timer-label">分 : 秒</div>
+        </div>
+
+        <div class="timer-actions">
+            <button class="btn-timer stop" id="btnStop" onclick="stopTimer()">
+                ⏹ 暂停计时
+            </button>
+            <button class="btn-timer reset" onclick="resetTimer()">
+                ↺ 重新设置
+            </button>
+        </div>
+
+        <div class="status-bar">
+            <span class="dot"></span> 管控运行中 — 请勿退出页面
+        </div>
+    </div>
+
+    <!-- ========================================================
+         OVERLAY 页面：警察叔叔来电（超时强制弹窗）
+         ======================================================== -->
+    <div id="overlay-screen" class="screen hidden">
+        <!-- 红色警报条 -->
+        <div class="alert-strip">⚠ 使用时间已到 ⚠</div>
+
+        <div class="overlay-content">
+            <!-- 来电标题 -->
+            <h1 class="call-title">📞 来电：警察叔叔 👮</h1>
+            <p class="call-subtitle">· 视频通话邀请 ·</p>
+
+            <!-- 视频占位区 — 卡通警察数字人 -->
+            <div class="video-placeholder" id="videoPlaceholder">
+                <div class="video-glitch"></div>
+                <div class="video-scanline"></div>
+
+                <!-- 视频通话UI覆盖层 -->
+                <div class="video-ui-overlay">
+                    <div class="video-ui-badge">
+                        <span class="video-dot" style="width:7px;height:7px;"></span>
+                        直播
+                    </div>
+                    <div class="video-ui-badge">
+                        HD
+                        <div class="signal-bars">
+                            <div class="signal-bar"></div>
+                            <div class="signal-bar"></div>
+                            <div class="signal-bar"></div>
+                            <div class="signal-bar"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 卡通警察数字人SVG -->
+                <div class="police-avatar">
+                    <svg viewBox="0 0 300 400" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <!-- 背景渐变 -->
+                            <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#5BA3E6"/>
+                                <stop offset="40%" stop-color="#3D8BD4"/>
+                                <stop offset="100%" stop-color="#1E5A9E"/>
+                            </linearGradient>
+                            <!-- 皮肤渐变 -->
+                            <radialGradient id="skinGrad" cx="50%" cy="40%" r="60%">
+                                <stop offset="0%" stop-color="#FFE4CC"/>
+                                <stop offset="70%" stop-color="#FFD1A8"/>
+                                <stop offset="100%" stop-color="#F0B888"/>
+                            </radialGradient>
+                            <!-- 帽子渐变 -->
+                            <linearGradient id="hatGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#2C3E6B"/>
+                                <stop offset="50%" stop-color="#1A2950"/>
+                                <stop offset="100%" stop-color="#0F1D3A"/>
+                            </linearGradient>
+                            <!-- 制服渐变 -->
+                            <linearGradient id="uniformGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#3B6FB5"/>
+                                <stop offset="100%" stop-color="#1E4580"/>
+                            </linearGradient>
+                            <!-- 徽章金光 -->
+                            <radialGradient id="badgeGrad" cx="40%" cy="35%">
+                                <stop offset="0%" stop-color="#FFE566"/>
+                                <stop offset="50%" stop-color="#FFC107"/>
+                                <stop offset="100%" stop-color="#E6A000"/>
+                            </radialGradient>
+                            <!-- 投影滤镜 -->
+                            <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+                                <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000" flood-opacity="0.15"/>
+                            </filter>
+                            <!-- 脸部柔光 -->
+                            <filter id="faceGlow">
+                                <feGaussianBlur in="SourceGraphic" stdDeviation="0.8"/>
+                            </filter>
+                        </defs>
+
+                        <!-- ========== 背景 ========== -->
+                        <!-- 简约蓝色背景圆 -->
+                        <circle cx="150" cy="200" r="200" fill="url(#bgGrad)"/>
+                        <!-- 柔和底光 -->
+                        <ellipse cx="150" cy="380" rx="120" ry="30" fill="rgba(255,255,255,0.04)"/>
+
+                        <!-- 背景装饰 - 小星星 -->
+                        <circle cx="45" cy="60" r="2" fill="white" opacity="0.3"/>
+                        <circle cx="255" cy="85" r="1.5" fill="white" opacity="0.25"/>
+                        <circle cx="70" cy="120" r="1" fill="white" opacity="0.2"/>
+                        <circle cx="240" cy="50" r="1.8" fill="white" opacity="0.3"/>
+                        <circle cx="30" cy="180" r="1.2" fill="white" opacity="0.15"/>
+                        <circle cx="268" cy="170" r="1" fill="white" opacity="0.2"/>
+
+                        <g filter="url(#softShadow)">
+                            <!-- ========== 身体/制服(半身) ========== -->
+                            <g class="officer-body-group">
+                                <!-- 肩膀 -->
+                                <ellipse cx="150" cy="340" rx="135" ry="70" fill="url(#uniformGrad)"/>
+                                <!-- 衣领区域 -->
+                                <polygon points="120,270 150,310 180,270 165,310 135,310"
+                                         fill="#2C5794"/>
+                                <!-- 制服领带 -->
+                                <polygon points="142,300 158,300 154,345 146,345"
+                                         fill="#1E4580"/>
+                                <!-- 左肩徽章 -->
+                                <rect x="55" y="305" width="22" height="30" rx="4" fill="url(#badgeGrad)" opacity="0.9"/>
+                                <!-- 右肩星标 -->
+                                <circle cx="222" cy="312" r="10" fill="url(#badgeGrad)" opacity="0.85"/>
+                                <text x="222" y="316" text-anchor="middle" font-size="12" fill="#A06000">★</text>
+                                <!-- 制服纽扣 -->
+                                <circle cx="150" cy="330" r="4" fill="#FFD700" opacity="0.7"/>
+                                <circle cx="150" cy="348" r="3.5" fill="#FFD700" opacity="0.6"/>
+                                <!-- 胸牌 -->
+                                <rect x="170" y="290" width="40" height="18" rx="3" fill="#2C5794" stroke="#FFD700" stroke-width="0.8"/>
+                                <text x="190" y="303" text-anchor="middle" font-size="8" fill="#FFD700" font-family="sans-serif">POLICE</text>
+                            </g>
+
+                            <!-- ========== 脖子 ========== -->
+                            <rect x="134" y="252" width="32" height="28" rx="8" fill="#FFD1A8"/>
+
+                            <!-- ========== 头部 ========== -->
+                            <g class="officer-head-group">
+                                <!-- 脸部阴影基底 -->
+                                <ellipse cx="150" cy="200" rx="85" ry="95" fill="#E8B888"/>
+
+                                <!-- 脸部 -->
+                                <ellipse cx="150" cy="200" rx="82" ry="92" fill="url(#skinGrad)"/>
+
+                                <!-- 耳朵 -->
+                                <ellipse cx="68" cy="210" rx="16" ry="22" fill="#FFD1A8" stroke="#F0B888" stroke-width="1"/>
+                                <ellipse cx="68" cy="210" rx="8" ry="12" fill="#FFC8A0"/>
+                                <ellipse cx="232" cy="210" rx="16" ry="22" fill="#FFD1A8" stroke="#F0B888" stroke-width="1"/>
+                                <ellipse cx="232" cy="210" rx="8" ry="12" fill="#FFC8A0"/>
+
+                                <!-- ===== 眼睛 ===== -->
+                                <!-- 左眼 -->
+                                <g class="officer-eye-left" transform-origin="125 195">
+                                    <!-- 眼白 -->
+                                    <ellipse cx="125" cy="195" rx="16" ry="18" fill="white"/>
+                                    <!-- 虹膜 -->
+                                    <circle cx="127" cy="194" r="10" fill="#4A3728"/>
+                                    <!-- 瞳孔 -->
+                                    <circle cx="128" cy="193" r="5" fill="#1A0F05"/>
+                                    <!-- 高光1 -->
+                                    <circle cx="122" cy="190" r="4" fill="white" opacity="0.95"/>
+                                    <!-- 高光2 -->
+                                    <circle cx="130" cy="197" r="1.8" fill="white" opacity="0.5"/>
+                                </g>
+
+                                <!-- 右眼 -->
+                                <g class="officer-eye-right" transform-origin="175 195">
+                                    <!-- 眼白 -->
+                                    <ellipse cx="175" cy="195" rx="16" ry="18" fill="white"/>
+                                    <!-- 虹膜 -->
+                                    <circle cx="173" cy="194" r="10" fill="#4A3728"/>
+                                    <!-- 瞳孔 -->
+                                    <circle cx="172" cy="193" r="5" fill="#1A0F05"/>
+                                    <!-- 高光1 -->
+                                    <circle cx="178" cy="190" r="4" fill="white" opacity="0.95"/>
+                                    <!-- 高光2 -->
+                                    <circle cx="170" cy="197" r="1.8" fill="white" opacity="0.5"/>
+                                </g>
+
+                                <!-- 眉毛 -->
+                                <path d="M107 176 Q125 170 142 176" stroke="#5D4037" stroke-width="3.5"
+                                      fill="none" stroke-linecap="round"/>
+                                <path d="M158 176 Q175 170 193 176" stroke="#5D4037" stroke-width="3.5"
+                                      fill="none" stroke-linecap="round"/>
+
+                                <!-- 小鼻子 -->
+                                <ellipse cx="150" cy="215" rx="10" ry="7" fill="#F0B888"/>
+                                <ellipse cx="148" cy="214" rx="3.5" ry="2" fill="#E8A878" opacity="0.6"/>
+
+                                <!-- 鼻子高光 -->
+                                <ellipse cx="147" cy="212" rx="3" ry="2.5" fill="white" opacity="0.25"/>
+
+                                <!-- 温和微笑嘴巴 -->
+                                <path d="M128 236 Q138 250 150 252 Q162 250 172 236"
+                                      stroke="#E08880" stroke-width="3.5" fill="#FF9E9E"
+                                      stroke-linecap="round" stroke-linejoin="round"/>
+                                <!-- 嘴巴内部 -->
+                                <path d="M132 238 Q150 254 168 238" fill="white" opacity="0.5"/>
+                                <!-- 嘴角上扬 -->
+                                <path d="M128 236 Q124 233 120 234" stroke="#E08880" stroke-width="2.5"
+                                      fill="none" stroke-linecap="round"/>
+                                <path d="M172 236 Q176 233 180 234" stroke="#E08880" stroke-width="2.5"
+                                      fill="none" stroke-linecap="round"/>
+
+                                <!-- 红润脸颊 -->
+                                <ellipse cx="105" cy="218" rx="18" ry="12" fill="#FFB3B3"
+                                         opacity="0.55" class="officer-cheek"/>
+                                <ellipse cx="195" cy="218" rx="18" ry="12" fill="#FFB3B3"
+                                         opacity="0.55" class="officer-cheek"/>
+
+                                <!-- ===== 警察帽子 ===== -->
+                                <!-- 帽檐 -->
+                                <ellipse cx="150" cy="130" rx="88" ry="18" fill="#0F1D3A"/>
+                                <!-- 帽身 -->
+                                <path d="M82 130 Q85 70 150 65 Q215 70 218 130"
+                                      fill="url(#hatGrad)"/>
+                                <!-- 帽顶弧线 -->
+                                <ellipse cx="150" cy="72" rx="55" ry="14" fill="#2C3E6B"/>
+                                <!-- 帽带(红色) -->
+                                <path d="M83 125 Q150 138 217 125" stroke="#CC3333" stroke-width="4"
+                                      fill="none"/>
+                                <!-- 帽子中间接缝 -->
+                                <line x1="150" y1="68" x2="150" y2="124" stroke="#1A2950" stroke-width="1.5" opacity="0.5"/>
+
+                                <!-- 警徽 -->
+                                <g transform="translate(150, 105)">
+                                    <!-- 徽章底座(盾形) -->
+                                    <path d="M-14 -16 L14 -16 L14 2 Q14 16 0 22 Q-14 16 -14 2 Z"
+                                          fill="url(#badgeGrad)" stroke="#C88700" stroke-width="1.2"/>
+                                    <!-- 徽章内圈 -->
+                                    <ellipse cx="0" cy="-4" rx="9" ry="10" fill="#FFF8E0" opacity="0.5"/>
+                                    <!-- 五角星 -->
+                                    <text x="0" y="-1" text-anchor="middle" font-size="15" fill="#C88700">★</text>
+                                    <!-- 徽章顶部圆 -->
+                                    <circle cx="0" cy="-20" r="3.5" fill="url(#badgeGrad)"/>
+                                </g>
+                            </g>
+                        </g>
+                    </svg>
+                </div>
+
+                <!-- 通话状态 -->
+                <div class="call-status" style="position:relative;z-index:6;">
+                    <span class="video-dot"></span>通话中 · 04:32
+                </div>
+            </div>
+
+            <!-- 劝导文字 -->
+            <div class="warning-text">
+                <span class="highlight">小朋友你好！</span><br>
+                你的手机使用时间已经到了哦~<br>
+                长时间看手机会<span class="highlight">伤害眼睛</span>，<br>
+                快放下手机，去做做运动、看看远方，<br>
+                保护好你的<span class="highlight">明亮大眼睛</span>！👀
+            </div>
+
+            <!-- 音频播放指示器 -->
+            <div class="audio-indicator" id="audioIndicator">
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>
+            </div>
+
+            <!-- 家长专属验证区 -->
+            <div class="parent-verify">
+                <p class="verify-title">🔒 家长专属验证</p>
+                <p class="verify-code-display" id="verifyCode">2580</p>
+                <div class="verify-input-row">
+                    <input type="text" id="verifyInput" class="verify-input"
+                           placeholder="输入验证码" maxlength="4" inputmode="numeric"
+                           autocomplete="off">
+                    <button class="verify-confirm-btn" id="verifyBtn" onclick="verifyParent()">
+                        确认关闭
+                    </button>
+                </div>
+                <p class="verify-hint">⬆ 请家长输入上方4位数字验证关闭 ⬆</p>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// ============================================================
+// 儿童手机管控工具 — 完整JavaScript逻辑
+// 功能: 倒计时 / 超时弹窗 / 语音合成 / 防退出 / PWA注册
+// ============================================================
+
+(function() {
+    'use strict';
+
+    // ========================================================
+    // DOM元素引用
+    // ========================================================
+    const $setupScreen  = document.getElementById('setup-screen');
+    const $timerScreen  = document.getElementById('timer-screen');
+    const $overlayScreen = document.getElementById('overlay-screen');
+    const $minutesInput = document.getElementById('minutesInput');
+    const $timerDisplay = document.getElementById('timerDisplay');
+    const $timerCircle  = document.getElementById('timerCircle');
+    const $btnStop      = document.getElementById('btnStop');
+    const $verifyCode   = document.getElementById('verifyCode');
+    const $verifyInput  = document.getElementById('verifyInput');
+    const $verifyBtn    = document.getElementById('verifyBtn');
+
+    // ========================================================
+    // 状态变量
+    // ========================================================
+    let targetEndTime   = null;   // 目标结束时间戳 (ms)
+    let timerInterval   = null;   // setInterval ID
+    let isPaused        = false;  // 是否暂停
+    let remainingMs     = 0;      // 暂停时剩余毫秒数
+    let audioContext    = null;   // Web Audio API上下文
+    let ringtoneInterval = null;  // 铃声重复interval
+    let currentCode     = '2580'; // 当前验证码
+    let swRegistration  = null;   // Service Worker注册
+    let notificationGranted = false; // 通知权限是否已授权
+
+    // ========================================================
+    // 屏幕切换工具
+    // ========================================================
+    function showScreen(screen) {
+        [$setupScreen, $timerScreen, $overlayScreen].forEach(s => {
+            s.classList.add('hidden');
+        });
+        screen.classList.remove('hidden');
+    }
+
+    // ========================================================
+    // 预设时长选择
+    // ========================================================
+    window.setPreset = function(minutes) {
+        $minutesInput.value = minutes;
+        document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+        // 找到对应按钮并高亮
+        const btns = document.querySelectorAll('.preset-btn');
+        btns.forEach(b => {
+            if (b.textContent.includes(String(minutes))) {
+                b.classList.add('active');
+            }
+        });
+    };
+
+    // 监听手动输入，取消预设高亮
+    $minutesInput.addEventListener('input', function() {
+        document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    });
+
+    // ========================================================
+    // 格式化时间为 MM:SS
+    // ========================================================
+    function formatTime(ms) {
+        if (ms <= 0) return '00:00';
+        const totalSeconds = Math.ceil(ms / 1000);
+        const mins = Math.floor(totalSeconds / 60);
+        const secs = totalSeconds % 60;
+        return String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+    }
+
+    // ========================================================
+    // 更新倒计时显示
+    // ========================================================
+    function updateDisplay() {
+        let remaining;
+        if (isPaused) {
+            remaining = remainingMs;
+        } else {
+            remaining = targetEndTime - Date.now();
+            if (remaining < 0) remaining = 0;
+        }
+
+        $timerDisplay.textContent = formatTime(remaining);
+
+        // 小于60秒变红色，脉冲加速
+        if (remaining <= 60000 && remaining > 0) {
+            $timerCircle.classList.add('urgent');
+            $timerDisplay.style.color = '#E63946';
+        } else {
+            $timerCircle.classList.remove('urgent');
+            $timerDisplay.style.color = '#FFFFFF';
+        }
+
+        // 倒计时结束
+        if (remaining <= 0 && !isPaused) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            triggerOverlay();
+        }
+
+        return remaining;
+    }
+
+    // ========================================================
+    // 开始计时
+    // ========================================================
+    window.startTimer = function() {
+        let minutes = parseInt($minutesInput.value, 10);
+        if (isNaN(minutes) || minutes < 1) {
+            alert('请输入有效的分钟数（至少1分钟）');
+            return;
+        }
+        if (minutes > 480) {
+            alert('单次最长8小时（480分钟）');
+            return;
+        }
+
+        // 计算目标时间戳
+        const totalMs = minutes * 60 * 1000;
+        targetEndTime = Date.now() + totalMs;
+        isPaused = false;
+        remainingMs = totalMs;
+
+        // 切换到计时页面
+        showScreen($timerScreen);
+        $btnStop.textContent = '⏹ 暂停计时';
+        $btnStop.className = 'btn-timer stop';
+        updateDisplay();
+
+        // 每秒刷新
+        clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+            updateDisplay();
+        }, 200); // 200ms刷新更流畅，精度通过时间戳保证
+
+        // 持久化计时器状态（防刷新丢失）
+        saveTimerState();
+
+        // 通知Service Worker后台计时
+        if (swRegistration && swRegistration.active) {
+            swRegistration.active.postMessage({
+                action: 'setTimer',
+                targetTime: targetEndTime
+            });
+        }
+
+        // 请求屏幕常亮（防止手机自动锁屏）
+        requestWakeLock();
+
+        // 再次请求通知权限（用户已交互）
+        requestNotificationPermission();
+    };
+
+    // ========================================================
+    // 暂停/继续计时
+    // ========================================================
+    window.stopTimer = function() {
+        if (!isPaused) {
+            // 暂停
+            isPaused = true;
+            remainingMs = Math.max(0, targetEndTime - Date.now());
+            clearInterval(timerInterval);
+            timerInterval = null;
+            $btnStop.textContent = '▶ 继续计时';
+            $btnStop.className = 'btn-timer';
+            $btnStop.style.borderColor = '#2ECC71';
+            $btnStop.style.color = '#2ECC71';
+            saveTimerState();
+            // 通知SW清除后台计时
+            if (swRegistration && swRegistration.active) {
+                swRegistration.active.postMessage({ action: 'clearTimer' });
+            }
+        } else {
+            // 继续
+            targetEndTime = Date.now() + remainingMs;
+            isPaused = false;
+            updateDisplay();
+            timerInterval = setInterval(() => {
+                updateDisplay();
+            }, 200);
+            $btnStop.textContent = '⏹ 暂停计时';
+            $btnStop.className = 'btn-timer stop';
+            saveTimerState();
+            requestWakeLock();
+            // 通知SW恢复后台计时
+            if (swRegistration && swRegistration.active) {
+                swRegistration.active.postMessage({
+                    action: 'setTimer',
+                    targetTime: targetEndTime
+                });
+            }
+        }
+    };
+
+    // ========================================================
+    // 重置计时器
+    // ========================================================
+    window.resetTimer = function() {
+        clearInterval(timerInterval);
+        timerInterval = null;
+        targetEndTime = null;
+        isPaused = false;
+        remainingMs = 0;
+        releaseWakeLock();
+        stopRingtone();
+        clearTimerState();
+        // 通知SW清除后台计时
+        if (swRegistration && swRegistration.active) {
+            swRegistration.active.postMessage({ action: 'clearTimer' });
+        }
+        showScreen($setupScreen);
+    };
+
+    // ========================================================
+    // 触发超时强制弹窗
+    // ========================================================
+    function triggerOverlay() {
+        showScreen($overlayScreen);
+        releaseWakeLock();
+        clearTimerState();
+
+        // 通知SW清除后台计时
+        if (swRegistration && swRegistration.active) {
+            swRegistration.active.postMessage({ action: 'clearTimer' });
+        }
+
+        // 发送后台通知（如果用户切出去了）
+        sendBackgroundNotification();
+
+        // 生成新的验证码
+        currentCode = String(Math.floor(1000 + Math.random() * 9000)); // 4位随机数
+        $verifyCode.textContent = currentCode;
+        $verifyInput.value = '';
+        $verifyBtn.className = 'verify-confirm-btn';
+
+        // 阻止页面滚动
+        document.body.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';
+
+        // 请求全屏
+        requestFullscreen();
+
+        // 播放铃声+语音
+        playRingtoneAndSpeech();
+
+        // 震动提醒（如果设备支持）
+        vibrateDevice();
+    }
+
+    // ========================================================
+    // Web Audio API — 生成电话铃声
+    // ========================================================
+    function getAudioContext() {
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        // 恢复被浏览器挂起的AudioContext
+        if (audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+        return audioContext;
+    }
+
+    /**
+     * 播放一段叮咚铃声（模拟来电）
+     * 使用振荡器生成双音调交替，类似电话铃声
+     */
+    function playRingtone() {
+        try {
+            const ctx = getAudioContext();
+            const now = ctx.currentTime;
+
+            // 铃声参数：两个交替频率模拟电话铃
+            const freq1 = 880; // A5
+            const freq2 = 1100; // C#6
+            const noteDuration = 0.4;
+            const pauseBetween = 0.2;
+            const patternLength = (noteDuration + pauseBetween) * 2; // 一组叮咚
+
+            // 播放3组叮咚声
+            for (let group = 0; group < 3; group++) {
+                const groupStart = now + group * patternLength;
+
+                // 第一声
+                playTone(ctx, freq1, groupStart, noteDuration, 0.3);
+                // 第二声（稍高音）
+                playTone(ctx, freq2, groupStart + noteDuration + pauseBetween, noteDuration, 0.3);
+            }
+
+            return (now + 3 * patternLength) * 1000; // 返回结束时间毫秒
+        } catch(e) {
+            console.warn('铃声播放失败:', e);
+            return null;
+        }
+    }
+
+    /**
+     * 播放单个音调
+     */
+    function playTone(ctx, frequency, startTime, duration, volume) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(frequency, startTime);
+
+        gain.gain.setValueAtTime(volume, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+    }
+
+    /**
+     * 重复播放铃声（间隔3秒）
+     */
+    function startRepeatingRingtone() {
+        playRingtone();
+        ringtoneInterval = setInterval(() => {
+            playRingtone();
+        }, 3000);
+    }
+
+    function stopRingtone() {
+        if (ringtoneInterval) {
+            clearInterval(ringtoneInterval);
+            ringtoneInterval = null;
+        }
+        if (audioContext) {
+            audioContext.close().catch(() => {});
+            audioContext = null;
+        }
+    }
+
+    // ========================================================
+    // Web Speech API — 语音合成（中文劝导）
+    // ========================================================
+    function speakWarningText() {
+        try {
+            // 检查浏览器是否支持语音合成
+            if (!window.speechSynthesis) {
+                console.warn('当前浏览器不支持语音合成');
+                return;
+            }
+
+            // 取消任何正在进行的语音
+            window.speechSynthesis.cancel();
+
+            // 等待一小段让cancel生效
+            setTimeout(() => {
+                const messages = [
+                    '嗨！',
+                    '小朋友你好！你的手机使用时间已经到了哦。' +
+                    '长时间看手机会伤害眼睛，快放下手机，去做做运动、看看远方，' +
+                    '保护好你的明亮大眼睛！听话的小朋友才是好孩子哦。'
+                ];
+
+                let currentIndex = 0;
+
+                function speakNext() {
+                    if (currentIndex >= messages.length) return;
+
+                    const utterance = new SpeechSynthesisUtterance(messages[currentIndex]);
+                    utterance.lang = 'zh-CN';
+                    utterance.rate = 0.9;   // 稍慢语速，适合小朋友
+                    utterance.pitch = 1.1;  // 稍高音调，亲切感
+                    utterance.volume = 1.0;
+
+                    // 尝试选择中文语音
+                    const voices = window.speechSynthesis.getVoices();
+                    const zhVoice = voices.find(v =>
+                        v.lang.startsWith('zh-CN') ||
+                        v.lang.startsWith('zh-TW') ||
+                        v.lang.startsWith('zh')
+                    );
+                    if (zhVoice) {
+                        utterance.voice = zhVoice;
+                    }
+
+                    utterance.onend = function() {
+                        currentIndex++;
+                        if (currentIndex < messages.length) {
+                            setTimeout(speakNext, 500);
+                        }
+                    };
+
+                    utterance.onerror = function(e) {
+                        console.warn('语音合成错误:', e);
+                        // 出错时继续下一条
+                        currentIndex++;
+                        if (currentIndex < messages.length) {
+                            setTimeout(speakNext, 500);
+                        }
+                    };
+
+                    window.speechSynthesis.speak(utterance);
+                }
+
+                speakNext();
+            }, 200);
+
+        } catch(e) {
+            console.warn('语音播放失败:', e);
+        }
+    }
+
+    /**
+     * 主音频播放：铃声 + 语音
+     */
+    function playRingtoneAndSpeech() {
+        // 先播放铃声吸引注意力
+        startRepeatingRingtone();
+
+        // 稍后开始语音播报
+        setTimeout(() => {
+            speakWarningText();
+        }, 800);
+    }
+
+    // ========================================================
+    // 设备震动
+    // ========================================================
+    function vibrateDevice() {
+        if (navigator.vibrate) {
+            // 震动模式：震动-停-震动-停-震动
+            navigator.vibrate([300, 150, 300, 150, 500]);
+            // 每3秒重复震动
+            const vibrateInterval = setInterval(() => {
+                if (!$overlayScreen.classList.contains('hidden')) {
+                    navigator.vibrate([300, 150, 300, 150, 500]);
+                } else {
+                    clearInterval(vibrateInterval);
+                }
+            }, 4000);
+            // 存储以便清理
+            $overlayScreen._vibrateInterval = vibrateInterval;
+        }
+    }
+
+    // ========================================================
+    // 家长验证关闭
+    // ========================================================
+    window.verifyParent = function() {
+        const input = $verifyInput.value.trim();
+
+        if (input === currentCode) {
+            // 验证成功
+            $verifyBtn.textContent = '✓ 验证通过';
+            $verifyBtn.className = 'verify-confirm-btn success';
+            $verifyInput.disabled = true;
+
+            // 停止所有音频和震动
+            stopRingtone();
+            if (window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+            }
+            if ($overlayScreen._vibrateInterval) {
+                clearInterval($overlayScreen._vibrateInterval);
+            }
+
+            // 延迟关闭，给家长看到确认反馈
+            setTimeout(() => {
+                closeOverlay();
+            }, 800);
+
+        } else {
+            // 验证失败 — 抖动提示
+            $verifyInput.style.borderColor = '#E63946';
+            $verifyInput.style.animation = 'none';
+            $verifyInput.offsetHeight; // 触发回流
+            $verifyInput.style.animation = 'shake 0.5s';
+            $verifyInput.value = '';
+
+            // 恢复边框
+            setTimeout(() => {
+                $verifyInput.style.borderColor = '#333';
+                $verifyInput.style.animation = '';
+            }, 600);
+        }
+    };
+
+    // 输入框回车也可触发验证
+    $verifyInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            verifyParent();
+        }
+    });
+
+    // 限制验证码输入框只能输入数字
+    $verifyInput.addEventListener('input', function() {
+        this.value = this.value.replace(/[^0-9]/g, '').slice(0, 4);
+    });
+
+    /**
+     * 关闭overlay，回到setup页面
+     */
+    function closeOverlay() {
+        showScreen($setupScreen);
+        document.body.style.overflow = '';
+        document.documentElement.style.overflow = '';
+        $verifyInput.disabled = false;
+        $verifyInput.value = '';
+        $verifyBtn.textContent = '确认关闭';
+        $verifyBtn.className = 'verify-confirm-btn';
+        clearTimerState();
+        exitFullscreen();
+    }
+
+    // ========================================================
+    // 全屏API
+    // ========================================================
+    function requestFullscreen() {
+        const el = document.documentElement;
+        if (el.requestFullscreen) {
+            el.requestFullscreen().catch(() => {});
+        } else if (el.webkitRequestFullscreen) {
+            el.webkitRequestFullscreen();
+        } else if (el.msRequestFullscreen) {
+            el.msRequestFullscreen();
+        }
+    }
+
+    function exitFullscreen() {
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+        } else if (document.webkitFullscreenElement) {
+            document.webkitExitFullscreen();
+        } else if (document.msFullscreenElement) {
+            document.msExitFullscreen();
+        }
+    }
+
+    // ========================================================
+    // 屏幕常亮（Wake Lock API）
+    // ========================================================
+    let wakeLock = null;
+
+    async function requestWakeLock() {
+        if ('wakeLock' in navigator) {
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                wakeLock.addEventListener('release', () => {
+                    // 唤醒锁被释放（如切换到其他APP）
+                    // 计时器仍通过时间戳保持准确
+                });
+            } catch(e) {
+                // 静默失败，不影响主功能
+            }
+        }
+    }
+
+    async function releaseWakeLock() {
+        if (wakeLock) {
+            try {
+                await wakeLock.release();
+            } catch(e) {}
+            wakeLock = null;
+        }
+    }
+
+    // ========================================================
+    // 防退出措施 — 阻止各种关闭/刷新手段
+    // ========================================================
+
+    // 1. 禁用右键菜单
+    document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        return false;
+    });
+
+    // 2. 拦截键盘快捷键
+    document.addEventListener('keydown', function(e) {
+        const forbidden = [
+            // F5 刷新
+            { key: 'F5' },
+            // Ctrl+R / Cmd+R 刷新
+            { key: 'r', ctrlKey: true },
+            { key: 'r', metaKey: true },
+            // Ctrl+W / Cmd+W 关闭标签
+            { key: 'w', ctrlKey: true },
+            { key: 'w', metaKey: true },
+            // Ctrl+T / Cmd+T 新标签
+            { key: 't', ctrlKey: true },
+            { key: 't', metaKey: true },
+            // Ctrl+Shift+W
+            { key: 'w', ctrlKey: true, shiftKey: true },
+            // Alt+F4
+            { key: 'F4', altKey: true },
+            // Ctrl+Shift+T 恢复标签
+            { key: 't', ctrlKey: true, shiftKey: true },
+        ];
+
+        const match = forbidden.some(f =>
+            e.key === f.key &&
+            (f.ctrlKey === undefined || e.ctrlKey === f.ctrlKey || e.metaKey === f.metaKey) &&
+            (f.shiftKey === undefined || e.shiftKey === f.shiftKey) &&
+            (f.altKey === undefined || e.altKey === f.altKey)
+        );
+
+        if (match) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+    });
+
+    // 3. 拦截后退按钮（在overlay显示时）
+    window.addEventListener('popstate', function(e) {
+        if (!$overlayScreen.classList.contains('hidden')) {
+            // 阻止后退：再推一个状态
+            history.pushState(null, '', location.href);
+        }
+    });
+
+    // 初始推入一个状态，这样后退按钮才能被拦截
+    history.pushState(null, '', location.href);
+
+    // 4. beforeunload — 页面关闭前提示
+    window.addEventListener('beforeunload', function(e) {
+        // 在timer或overlay显示时阻止关闭
+        if (!$timerScreen.classList.contains('hidden') || !$overlayScreen.classList.contains('hidden')) {
+            e.preventDefault();
+            e.returnValue = '计时器正在运行，确定离开吗？';
+            return e.returnValue;
+        }
+    });
+
+    // 5. 页面可见性变化检测 — 如果切到后台再回来，检查是否仍在管控制中
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden && !$overlayScreen.classList.contains('hidden')) {
+            // 用户可能通过切换APP来躲避，回到页面时重新激活overlay
+            setTimeout(() => {
+                if (!document.hidden && !$overlayScreen.classList.contains('hidden')) {
+                    // 重新震动和铃声
+                    vibrateDevice();
+                    if (!ringtoneInterval) {
+                        startRepeatingRingtone();
+                    }
+                }
+            }, 500);
+        }
+    });
+
+    // 6. 阻止iOS橡皮筋效果和过度滚动
+    document.addEventListener('touchmove', function(e) {
+        if (!$overlayScreen.classList.contains('hidden')) {
+            // overlay显示时完全阻止滚动
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    // 7. 阻止手势缩放
+    document.addEventListener('gesturestart', function(e) {
+        e.preventDefault();
+    });
+    document.addEventListener('gesturechange', function(e) {
+        e.preventDefault();
+    });
+    document.addEventListener('gestureend', function(e) {
+        e.preventDefault();
+    });
+
+    // ========================================================
+    // PWA — Service Worker 注册 + 通知权限 + 后台持久化
+    // ========================================================
+    function registerPWA() {
+        // 1. 注册 Service Worker（sw.js 需在同目录）
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js')
+                .then(function(reg) {
+                    swRegistration = reg;
+                    console.log('✅ Service Worker 已注册:', reg.scope);
+
+                    // 监听SW发来的消息（后台计时到期通知）
+                    navigator.serviceWorker.addEventListener('message', function(event) {
+                        if (event.data && event.data.action === 'timerExpired') {
+                            console.log('⏰ SW通知：计时器到期');
+                            // 如果当前不在overlay页面，触发弹窗
+                            if ($overlayScreen.classList.contains('hidden')) {
+                                // 清除可能存在的计时器
+                                clearInterval(timerInterval);
+                                timerInterval = null;
+                                showScreen($overlayScreen);
+                                playRingtoneAndSpeech();
+                                vibrateDevice();
+                                document.body.style.overflow = 'hidden';
+                                document.documentElement.style.overflow = 'hidden';
+                                requestFullscreen();
+                            }
+                        }
+                    });
+                })
+                .catch(function(e) {
+                    console.log('⚠ Service Worker 注册失败（file://协议不支持，HTTPS下自动生效）:', e.message);
+                });
+        }
+
+        // 2. 请求通知权限（用于后台计时结束提醒）
+        requestNotificationPermission();
+
+        // 3. 恢复上次计时状态（页面刷新/重新打开后）
+        restoreTimerState();
+    }
+
+    /**
+     * 请求浏览器通知权限
+     */
+    function requestNotificationPermission() {
+        if (!('Notification' in window)) return;
+
+        if (Notification.permission === 'granted') {
+            notificationGranted = true;
+        } else if (Notification.permission === 'default') {
+            // 延迟请求，等用户先与页面交互
+            setTimeout(function() {
+                Notification.requestPermission().then(function(perm) {
+                    notificationGranted = (perm === 'granted');
+                    if (notificationGranted) {
+                        console.log('✅ 通知权限已授权');
+                    }
+                });
+            }, 3000);
+        }
+    }
+
+    /**
+     * 发送后台通知（计时结束在后台时触发）
+     */
+    function sendBackgroundNotification() {
+        if (!notificationGranted || !('Notification' in window)) return;
+
+        // 需要SW来显示通知（因为页面可能在后台）
+        if (swRegistration) {
+            swRegistration.showNotification('⏰ 使用时间到！', {
+                body: '警察叔叔来电话了！请家长确认关闭。',
+                icon: 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="#E63946"/><text x="50" y="62" text-anchor="middle" font-size="40">👮</text></svg>'),
+                vibrate: [300, 150, 300, 150, 500],
+                requireInteraction: true,  // 需要用户手动关闭（不会自动消失）
+                tag: 'timer-expired'
+            });
+        } else if (Notification.permission === 'granted') {
+            // 没有SW时，直接用普通通知
+            new Notification('⏰ 使用时间到！', {
+                body: '警察叔叔来电话了！请家长确认关闭。',
+                requireInteraction: true,
+                tag: 'timer-expired'
+            });
+        }
+    }
+
+    /**
+     * 将计时器状态保存到 localStorage（防刷新丢失）
+     */
+    function saveTimerState() {
+        if (targetEndTime && !isPaused) {
+            localStorage.setItem('kc_targetEnd', String(targetEndTime));
+            localStorage.setItem('kc_remaining', String(remainingMs));
+        } else if (isPaused) {
+            localStorage.setItem('kc_remaining', String(remainingMs));
+            localStorage.setItem('kc_paused', '1');
+        } else {
+            clearTimerState();
+        }
+    }
+
+    function clearTimerState() {
+        localStorage.removeItem('kc_targetEnd');
+        localStorage.removeItem('kc_remaining');
+        localStorage.removeItem('kc_paused');
+    }
+
+    /**
+     * 页面加载时恢复计时状态（如刷新后恢复）
+     */
+    function restoreTimerState() {
+        const savedTarget = localStorage.getItem('kc_targetEnd');
+        const savedRemaining = localStorage.getItem('kc_remaining');
+        const savedPaused = localStorage.getItem('kc_paused');
+
+        if (savedTarget) {
+            targetEndTime = parseInt(savedTarget, 10);
+            const now = Date.now();
+            if (targetEndTime <= now) {
+                // 已过期，直接弹窗
+                clearTimerState();
+                triggerOverlay();
+                return;
+            }
+            // 未过期，恢复计时
+            isPaused = false;
+            remainingMs = targetEndTime - now;
+            showScreen($timerScreen);
+            updateDisplay();
+            timerInterval = setInterval(function() {
+                updateDisplay();
+            }, 200);
+            requestWakeLock();
+            console.log('🔄 已恢复计时器，剩余:', formatTime(remainingMs));
+        } else if (savedRemaining && savedPaused === '1') {
+            remainingMs = parseInt(savedRemaining, 10);
+            isPaused = true;
+            showScreen($timerScreen);
+            $timerDisplay.textContent = formatTime(remainingMs);
+            $btnStop.textContent = '▶ 继续计时';
+            $btnStop.className = 'btn-timer';
+            $btnStop.style.borderColor = '#2ECC71';
+            $btnStop.style.color = '#2ECC71';
+            console.log('🔄 已恢复暂停状态，剩余:', formatTime(remainingMs));
+        }
+    }
+
+    // ========================================================
+    // 初始化
+    // ========================================================
+    function init() {
+        // 注册PWA（SW + 通知权限 + 状态恢复）
+        registerPWA();
+
+        // 语音合成预加载voices列表
+        if (window.speechSynthesis) {
+            window.speechSynthesis.getVoices();
+            window.speechSynthesis.onvoiceschanged = function() {
+                window.speechSynthesis.getVoices();
+            };
+        }
+
+        // 页面可见性变化：从后台切回时检查计时器是否到期
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden && targetEndTime && !isPaused) {
+                const now = Date.now();
+                if (targetEndTime <= now) {
+                    // 后台期间计时器已到期，立即触发弹窗
+                    console.log('⏰ 从后台恢复，计时器已到期');
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                    clearTimerState();
+                    triggerOverlay();
+                } else {
+                    // 更新显示（后台期间timer可能被暂停）
+                    updateDisplay();
+                    console.log('🔄 从后台恢复，剩余:', formatTime(targetEndTime - now));
+                }
+            }
+        });
+
+        // 页面被隐藏时发送后台通知请求
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden && targetEndTime && !isPaused) {
+                // 页面进入后台时保存状态
+                saveTimerState();
+                // 估算后台超时，设置一个补充检查
+                const delay = targetEndTime - Date.now();
+                if (delay > 0 && delay < 300000) {
+                    // 5分钟内到期，发送后台通知
+                    setTimeout(function() {
+                        if (document.hidden && targetEndTime && targetEndTime <= Date.now()) {
+                            sendBackgroundNotification();
+                        }
+                    }, delay + 1000);
+                }
+            }
+        });
+
+        // 显示初始页面
+        showScreen($setupScreen);
+
+        // 设置输入框初始值
+        $minutesInput.value = 30;
+
+        console.log('✅ 儿童手机管控工具初始化完成');
+        console.log('📱 PWA独立窗口 | 🔔 后台通知 | 💾 防刷新持久化');
+        console.log('👮 超时自动弹出警察叔叔来电界面');
+        console.log('📂 配套文件: manifest.json / sw.js');
+    }
+
+    // ========================================================
+    // 添加抖动动画keyframes（动态注入）
+    // ========================================================
+    const shakeStyle = document.createElement('style');
+    shakeStyle.textContent = `
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-6px); }
+            20%, 40%, 60%, 80% { transform: translateX(6px); }
+        }
+    `;
+    document.head.appendChild(shakeStyle);
+
+    // ========================================================
+    // 启动应用
+    // ========================================================
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+})(); // IIFE 包裹，避免全局变量污染
+</script>
+
+</body>
+</html>

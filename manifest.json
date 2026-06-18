@@ -1,0 +1,30 @@
+{
+  "name": "儿童手机管控 - 警察叔叔来电",
+  "short_name": "儿童管控",
+  "description": "管控儿童玩手机时长，超时自动弹出警察叔叔来电提醒，保护孩子视力",
+  "start_url": "./index.html",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "lang": "zh-CN",
+  "categories": ["parenting", "health", "utilities"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxOTIgMTkyIj4KICA8cmVjdCB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgcng9IjI4IiBmaWxsPSIjMUEyQTRFIi8+CiAgPGNpcmNsZSBjeD0iOTYiIGN5PSI3MCIgcj0iMzQiIGZpbGw9IiMxQTI3NDQiIHN0cm9rZT0iI0ZGQzEwNyIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgPGNpcmNsZSBjeD0iOTYiIGN5PSI3MCIgcj0iMjYiIGZpbGw9IiNGRkQ1QjgiLz4KICA8Y2lyY2xlIGN4PSI4NSIgY3k9IjY1IiByPSI1IiBmaWxsPSIjNEEzNzI4Ii8+CiAgPGNpcmNsZSBjeD0iMTA3IiBjeT0iNjUiIHI9IjUiIGZpbGw9IiM0QTM3MjgiLz4KICA8cGF0aCBkPSJNODIgODJRMjYgOTAgOTkuNSAxMDgiIGZpbGw9IiNGRjlFOUUiIHN0cm9rZT0iI0UwODg4MCIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPHJlY3QgeD0iNzAiIHk9IjExMCIgd2lkdGg9IjUyIiBoZWlnaHQ9IjQwIiByeD0iOCIgZmlsbD0iIzFCNDU4MCIvPgogIDxjaXJjbGUgY3g9Ijk2IiBjeT0iMTIyIiByPSI4IiBmaWxsPSIjRkZDMTA3Ii8+CiAgPHJlY3QgeD0iNjAiIHk9IjE1MCIgd2lkdGg9IjcyIiBoZWlnaHQ9IjEwIiByeD0iNSIgZmlsbD0iIzBGMUQzQSIvPgogIDx0ZXh0IHg9Ijk2IiB5PSIxNzgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiNGRkQ5M0QiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIj7ilZM8L3RleHQ+Cjwvc3ZnPg==",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj4KICA8cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgcng9IjcwIiBmaWxsPSIjMUEyQTRFIi8+CiAgPGNpcmNsZSBjeD0iMjU2IiBjeT0iMTkwIiByPSI5MCIgZmlsbD0iIzFBMjc0NCIgc3Ryb2tlPSIjRkZDMTA3IiBzdHJva2Utd2lkdGg9IjgiLz4KICA8Y2lyY2xlIGN4PSIyNTYiIGN5PSIxOTAiIHI9IjcwIiBmaWxsPSIjRkZENUI4Ii8+CiAgPGNpcmNsZSBjeD0iMjI2IiBjeT0iMTc2IiByPSIxMiIgZmlsbD0iIzRBMzcyOCIvPgogIDxjaXJjbGUgY3g9IjI4NiIgY3k9IjE3NiIgcj0iMTIiIGZpbGw9IiM0QTM3MjgiLz4KICA8cGF0aCBkPSJNMjIwIDIzMFEyMzAgMjQ1IDI1NiAyNThRMjgyIDI0NSAyOTIgMjMwIiBmaWxsPSIjRkY5RTlFIiBzdHJva2U9IiNFMDg4ODAiIHN0cm9rZS13aWR0aD0iNCIvPgogIDxyZWN0IHg9IjE4MCIgeT0iMzAwIiB3aWR0aD0iMTUyIiBoZWlnaHQ9IjExMCIgcng9IjIwIiBmaWxsPSIjMUI0NTgwIi8+CiAgPGNpcmNsZSBjeD0iMjU2IiBjeT0iMzMwIiByPSIyMCIgZmlsbD0iI0ZGQzEwNyIvPgogIDxyZWN0IHg9IjE1MCIgeT0iNDEwIiB3aWR0aD0iMjEyIiBoZWlnaHQ9IjI0IiByeD0iMTIiIGZpbGw9IiMwRjFEM0EiLz4KICA8dGV4dCB4PSIyNTYiIHk9IjQ4NSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1zaXplPSI0MCIgZmlsbD0iI0ZGRDkzRCIgZm9udC1mYW1pbHk9InNhbnMtc2VyaWYiPuKUkzwvdGV4dD4KPC9zdmc+",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "related_applications": [],
+  "prefer_related_applications": false
+}
