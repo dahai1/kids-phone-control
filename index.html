@@ -25,13 +25,12 @@
 
   【方式二：打包为Android APK（支持后台持续计时）】
 
-  [方案A: PWA Builder 在线打包（免费）]
-  步骤1: 先将3个文件托管到免费静态服务：
-         GitHub Pages: 新建仓库 → 上传3个文件 → Settings → Pages → Save → 获得URL
-         或用 Netlify/Vercel: 拖拽整个文件夹到网页 → 获得URL
-  步骤2: 访问 https://pwabuilder.com → 输入URL → Start
-  步骤3: 右侧检测到PWA → Package for Stores → Android → 下载APK
-  步骤4: APK传到手机安装 → 长按图标 → 应用信息 → 开启悬浮窗权限
+      [方案A: PWA Builder 一键打包（免费，已部署直接用）]
+      你的网站: https://dahai1.github.io/kids-phone-control/
+      一键打包: https://pwabuilder.com/?url=https://dahai1.github.io/kids-phone-control/
+      步骤: 打开上面打包链接 → 自动检测PWA → Package for Stores → Android → 下载APK
+      安装后: 长按应用图标 → 应用信息 → 开启悬浮窗+后台运行+电池不优化
+      更新: 代码push到GitHub后自动更新，无需重新打包APK
 
   [方案B: WebViewGold（付费，支持后台运行防杀）]
   步骤1: 下载 WebViewGold App Template
