@@ -314,10 +314,186 @@ jobs:
 
               // 启动全屏警察叔叔来电界面
               private void launchOverlay() {
+                  // 方式1: WindowManager系统级悬浮窗(覆盖所有APP)
+                  showSystemOverlay();
+
+                  // 方式2: Activity弹窗(双保险)
                   Intent overlayIntent = new Intent(this, OverlayActivity.class);
                   overlayIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                   overlayIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  overlayIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                  overlayIntent.addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
                   startActivity(overlayIntent);
+              }
+
+              // WindowManager系统级全屏覆盖层
+              private void showSystemOverlay() {
+                  android.view.WindowManager wm = (android.view.WindowManager) getSystemService(WINDOW_SERVICE);
+
+                  // 全屏黑色布局
+                  android.widget.LinearLayout overlay = new android.widget.LinearLayout(this);
+                  overlay.setBackgroundColor(android.graphics.Color.BLACK);
+                  overlay.setOrientation(android.widget.LinearLayout.VERTICAL);
+                  overlay.setGravity(android.view.Gravity.CENTER);
+                  overlay.setClickable(true);
+                  overlay.setFocusable(true);
+
+                  // 红色警报条
+                  android.widget.TextView alertBar = new android.widget.TextView(this);
+                  alertBar.setText("⚠ 手机使用时间已到 ⚠");
+                  alertBar.setTextColor(android.graphics.Color.WHITE);
+                  alertBar.setBackgroundColor(android.graphics.Color.rgb(204, 0, 0));
+                  alertBar.setGravity(android.view.Gravity.CENTER);
+                  alertBar.setPadding(0, 20, 0, 20);
+                  alertBar.setTextSize(16);
+
+                  // 滚动内容
+                  android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+                  android.widget.LinearLayout content = new android.widget.LinearLayout(this);
+                  content.setOrientation(android.widget.LinearLayout.VERTICAL);
+                  content.setGravity(android.view.Gravity.CENTER);
+                  content.setPadding(40, 50, 40, 40);
+
+                  // 来电标题
+                  android.widget.TextView title = new android.widget.TextView(this);
+                  title.setText("📞 来电：警察叔叔 👮");
+                  title.setTextColor(android.graphics.Color.WHITE);
+                  title.setTextSize(24);
+                  title.setGravity(android.view.Gravity.CENTER);
+                  title.setPadding(0, 20, 0, 10);
+
+                  // 警察头像
+                  android.widget.TextView avatar = new android.widget.TextView(this);
+                  avatar.setText("👮‍♂️");
+                  avatar.setTextSize(90);
+                  avatar.setGravity(android.view.Gravity.CENTER);
+
+                  // 通话状态
+                  android.widget.TextView status = new android.widget.TextView(this);
+                  status.setText("● 通话中 · 04:32");
+                  status.setTextColor(android.graphics.Color.rgb(0, 255, 136));
+                  status.setTextSize(14);
+                  status.setGravity(android.view.Gravity.CENTER);
+                  status.setPadding(0, 10, 0, 20);
+
+                  // 劝导文字
+                  android.widget.TextView msg = new android.widget.TextView(this);
+                  msg.setText("小朋友你好！\n你的手机使用时间已经到了哦~\n长时间看手机会伤害眼睛，\n快放下手机，去做做运动、看看远方，\n保护好你的明亮大眼睛！👀");
+                  msg.setTextColor(android.graphics.Color.rgb(255, 217, 61));
+                  msg.setTextSize(16);
+                  msg.setGravity(android.view.Gravity.CENTER);
+                  msg.setPadding(0, 10, 0, 25);
+                  msg.setLineSpacing(8, 1);
+
+                  // 验证码
+                  String code = String.valueOf(1000 + new java.util.Random().nextInt(9000));
+                  android.widget.TextView codeLabel = new android.widget.TextView(this);
+                  codeLabel.setText("🔒 家长专属验证");
+                  codeLabel.setTextColor(android.graphics.Color.GRAY);
+                  codeLabel.setTextSize(13);
+                  codeLabel.setGravity(android.view.Gravity.CENTER);
+
+                  android.widget.TextView codeShow = new android.widget.TextView(this);
+                  codeShow.setText(code);
+                  codeShow.setTextColor(android.graphics.Color.rgb(255, 217, 61));
+                  codeShow.setTextSize(34);
+                  codeShow.setGravity(android.view.Gravity.CENTER);
+                  codeShow.setPadding(0, 10, 0, 18);
+
+                  // 输入框
+                  android.widget.EditText input = new android.widget.EditText(this);
+                  input.setHint("输入验证码");
+                  input.setTextColor(android.graphics.Color.WHITE);
+                  input.setHintTextColor(android.graphics.Color.GRAY);
+                  input.setBackgroundColor(android.graphics.Color.rgb(35, 35, 35));
+                  input.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+                  input.setGravity(android.view.Gravity.CENTER);
+                  input.setMaxLines(1);
+                  android.widget.LinearLayout.LayoutParams inputLp = new android.widget.LinearLayout.LayoutParams(250, 100);
+                  input.setLayoutParams(inputLp);
+
+                  // 确认按钮
+                  android.widget.Button btn = new android.widget.Button(this);
+                  btn.setText("家长确认关闭");
+                  btn.setTextColor(android.graphics.Color.LTGRAY);
+                  btn.setBackgroundColor(android.graphics.Color.rgb(60, 60, 60));
+                  android.widget.LinearLayout.LayoutParams btnLp = new android.widget.LinearLayout.LayoutParams(250, 100);
+                  btnLp.setMargins(0, 20, 0, 10);
+                  btn.setLayoutParams(btnLp);
+
+                  // 点击验证
+                  btn.setOnClickListener(new android.view.View.OnClickListener() {
+                      @Override
+                      public void onClick(android.view.View v) {
+                          if (input.getText().toString().equals(code)) {
+                              try { wm.removeView(overlay); } catch(Exception e) {}
+                              stopSelf();
+                          } else {
+                              input.setText("");
+                              android.widget.Toast.makeText(TimerService.this, "验证码错误", android.widget.Toast.LENGTH_SHORT).show();
+                          }
+                      }
+                  });
+
+                  android.widget.TextView hint = new android.widget.TextView(this);
+                  hint.setText("⬆ 请家长输入上方4位数字验证 ⬆");
+                  hint.setTextColor(android.graphics.Color.rgb(85, 85, 85));
+                  hint.setTextSize(12);
+                  hint.setGravity(android.view.Gravity.CENTER);
+                  hint.setPadding(0, 15, 0, 0);
+
+                  content.addView(title);
+                  content.addView(avatar);
+                  content.addView(status);
+                  content.addView(msg);
+                  content.addView(codeLabel);
+                  content.addView(codeShow);
+                  content.addView(input);
+                  content.addView(btn);
+                  content.addView(hint);
+                  scroll.addView(content);
+
+                  overlay.addView(alertBar);
+                  overlay.addView(scroll);
+
+                  // 系统级悬浮窗参数: 覆盖一切
+                  int overlayType;
+                  if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                      overlayType = android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+                  } else {
+                      overlayType = android.view.WindowManager.LayoutParams.TYPE_SYSTEM_ALERT;
+                  }
+
+                  android.view.WindowManager.LayoutParams params = new android.view.WindowManager.LayoutParams(
+                      android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                      android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                      overlayType,
+                      android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN |
+                      android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
+                      android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD |
+                      android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
+                      android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON |
+                      android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL |
+                      android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                      android.graphics.PixelFormat.OPAQUE
+                  );
+
+                  // 覆盖状态栏和导航栏
+                  if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                      params.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                  }
+                  params.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_FULLSCREEN |
+                      android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                      android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
+                      android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
+                      android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
+                      android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
+
+                  try {
+                      wm.addView(overlay, params);
+                  } catch(android.view.WindowManager.BadTokenException e) {
+                      // 没有悬浮窗权限时会失败，但Activity仍会弹出
+                  }
               }
 
               private void updateNotification() {
