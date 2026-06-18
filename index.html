@@ -1278,6 +1278,11 @@ html, body {
     }
 
     // ========================================================
+    // 检测是否在原生APP内运行（APK模式）
+    // ========================================================
+    var isNativeApp = (typeof window.AndroidTimer !== 'undefined');
+
+    // ========================================================
     // 开始计时
     // ========================================================
     window.startTimer = function() {
@@ -1291,7 +1296,41 @@ html, body {
             return;
         }
 
-        // 计算目标时间戳
+        if (isNativeApp) {
+            // === 原生模式：使用Android前台服务计时，切后台不断 ===
+            try {
+                AndroidTimer.startTimer(minutes);
+            } catch(e) {
+                console.warn('原生计时器启动失败，回退到JS模式:', e);
+            }
+            // 仍显示UI（显示用）
+            const totalMs = minutes * 60 * 1000;
+            targetEndTime = Date.now() + totalMs;
+            isPaused = false;
+            remainingMs = totalMs;
+            showScreen($timerScreen);
+            $btnStop.textContent = '⏹ 暂停计时';
+            $btnStop.className = 'btn-timer stop';
+            updateDisplay();
+            clearInterval(timerInterval);
+            timerInterval = setInterval(function() {
+                if (isNativeApp && typeof AndroidTimer !== 'undefined') {
+                    var secs = AndroidTimer.getRemainingSeconds();
+                    if (secs <= 0) {
+                        clearInterval(timerInterval);
+                        timerInterval = null;
+                    }
+                    $timerDisplay.textContent = formatTime(secs * 1000);
+                } else {
+                    updateDisplay();
+                }
+            }, 500);
+            saveTimerState();
+            requestWakeLock();
+            return;
+        }
+
+        // === PWA模式：JS计时器（浏览器内使用） ===
         const totalMs = minutes * 60 * 1000;
         targetEndTime = Date.now() + totalMs;
         isPaused = false;
@@ -1331,6 +1370,11 @@ html, body {
     // 暂停/继续计时
     // ========================================================
     window.stopTimer = function() {
+        // 原生模式
+        if (isNativeApp && typeof AndroidTimer !== 'undefined') {
+            try { AndroidTimer.stopTimer(); } catch(e) {}
+        }
+
         if (!isPaused) {
             // 暂停
             isPaused = true;
@@ -1380,6 +1424,10 @@ html, body {
         releaseWakeLock();
         stopRingtone();
         clearTimerState();
+        // 原生模式：通知原生服务停止
+        if (isNativeApp && typeof AndroidTimer !== 'undefined') {
+            try { AndroidTimer.resetTimer(); } catch(e) {}
+        }
         // 通知SW清除后台计时
         if (swRegistration && swRegistration.active) {
             swRegistration.active.postMessage({ action: 'clearTimer' });
@@ -2040,14 +2088,20 @@ html, body {
             }
         });
 
-        // 显示初始页面
-        showScreen($setupScreen);
+        // 检查URL参数：原生App超时后可能重新打开WebView
+        if (location.search.indexOf('overlay=1') !== -1) {
+            triggerOverlay();
+        } else {
+            // 显示初始页面
+            showScreen($setupScreen);
+        }
 
         // 设置输入框初始值
         $minutesInput.value = 30;
 
         console.log('✅ 儿童手机管控工具初始化完成');
-        console.log('📱 PWA独立窗口 | 🔔 后台通知 | 💾 防刷新持久化');
+        console.log('📱 原生APK模式: ' + (isNativeApp ? '✅ 后台服务计时' : 'PWA浏览器模式'));
+        console.log('🔔 后台通知 | 💾 防刷新持久化');
         console.log('👮 超时自动弹出警察叔叔来电界面');
         console.log('📂 配套文件: manifest.json / sw.js');
     }
