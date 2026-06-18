@@ -1,0 +1,80 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0'
+
+      - name: Install Bubblewrap
+        run: npm install -g @bubblewrap/cli
+
+      - name: Generate TWA project
+        run: |
+          mkdir -p twa-build
+          cd twa-build
+
+          # Initialize project (non-interactive via pre-filled config)
+          bubblewrap init --manifest "https://dahai1.github.io/kids-phone-control/manifest.json" --directory .
+
+          # Update twa-manifest.json with correct settings
+          cat > twa-manifest.json << 'EOF'
+          {
+            "packageId": "app.kidscontrol.phonetimer",
+            "host": "dahai1.github.io",
+            "name": "儿童管控 - 警察叔叔来电",
+            "launcherName": "儿童管控",
+            "display": "standalone",
+            "themeColor": "#000000",
+            "navigationColor": "#000000",
+            "backgroundColor": "#1A1A2E",
+            "startUrl": "/kids-phone-control/index.html",
+            "iconUrl": "https://dahai1.github.io/kids-phone-control/icon-512.png",
+            "maskableIconUrl": "https://dahai1.github.io/kids-phone-control/icon-512.png",
+            "monochromeIconUrl": "https://dahai1.github.io/kids-phone-control/icon-192.png",
+            "splashScreenFadeOutDuration": 300,
+            "signingKey": {
+              "path": "./android.keystore",
+              "alias": "kidscontrol"
+            }
+          }
+          EOF
+
+      - name: Generate signing key
+        run: |
+          cd twa-build
+          keytool -genkey -v \
+            -keystore android.keystore \
+            -alias kidscontrol \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android \
+            -keypass android \
+            -dname "CN=Kids Control, OU=App, O=KidsControl, L=Beijing, ST=Beijing, C=CN"
+
+      - name: Build APK
+        run: |
+          cd twa-build
+          bubblewrap build
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kids-control-apk
+          path: twa-build/app/build/outputs/apk/release/*.apk
