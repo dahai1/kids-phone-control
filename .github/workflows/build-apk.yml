@@ -23,60 +23,214 @@ jobs:
         with:
           packages: 'platforms;android-34 build-tools;34.0.0'
 
-      - name: Install Bubblewrap
-        run: npm install -g @bubblewrap/cli
-
-      - name: Init TWA project
+      - name: Create Android project
         run: |
-          mkdir -p twa-build
-          cd twa-build
+          APP="app.kidscontrol.phonetimer"
+          DIR="twa-project"
 
-          # Pre-create twa-manifest.json so bubblewrap doesn't prompt
-          cat > twa-manifest.json << 'MANIFESTEOF'
-          {
-            "packageId": "app.kidscontrol.phonetimer",
-            "host": "dahai1.github.io",
-            "name": "儿童管控",
-            "launcherName": "儿童管控",
-            "display": "standalone",
-            "themeColor": "#000000",
-            "navigationColor": "#000000",
-            "backgroundColor": "#1A1A2E",
-            "startUrl": "/kids-phone-control/index.html",
-            "iconUrl": "https://dahai1.github.io/kids-phone-control/icon-512.png",
-            "maskableIconUrl": "https://dahai1.github.io/kids-phone-control/icon-512.png",
-            "monochromeIconUrl": "https://dahai1.github.io/kids-phone-control/icon-192.png",
-            "splashScreenFadeOutDuration": 300,
-            "signingKey": {
-              "path": "./android.keystore",
-              "alias": "kidscontrol"
-            }
+          mkdir -p $DIR/app/src/main/java/app/kidscontrol/phonetimer
+          mkdir -p $DIR/app/src/main/res/values
+          mkdir -p $DIR/app/src/main/res/mipmap-anydpi-v26
+          mkdir -p $DIR/app/src/main/res/drawable
+          mkdir -p $DIR/gradle/wrapper
+
+          # ---- settings.gradle ----
+          cat > $DIR/settings.gradle << 'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
           }
-          MANIFESTEOF
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "KidsControl"
+          include ":app"
+          EOF
 
-          # Answer both prompts: n (no JDK install) + JDK path
-          printf "n\n$JAVA_HOME\n" | bubblewrap init --manifest "https://dahai1.github.io/kids-phone-control/manifest.json" --directory .
+          # ---- root build.gradle ----
+          cat > $DIR/build.gradle << 'EOF'
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
+          }
+          EOF
 
-      - name: Generate signing key
+          # ---- gradle.properties ----
+          cat > $DIR/gradle.properties << 'EOF'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2048m
+          EOF
+
+          # ---- app/build.gradle ----
+          cat > $DIR/app/build.gradle << 'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace "app.kidscontrol.phonetimer"
+              compileSdk 34
+              defaultConfig {
+                  applicationId "app.kidscontrol.phonetimer"
+                  minSdk 21
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              signingConfigs {
+                  release {
+                      storeFile file("release.keystore")
+                      storePassword "android"
+                      keyAlias "kidscontrol"
+                      keyPassword "android"
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                      minifyEnabled false
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          dependencies {
+              implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+          }
+          EOF
+
+          # ---- AndroidManifest.xml ----
+          cat > $DIR/app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:allowBackup="true"
+                  android:label="儿童管控"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.KidsControl">
+                  <activity
+                      android:name="com.google.androidbrowserhelper.trusted.LauncherActivity"
+                      android:exported="true">
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.DEFAULT_URL"
+                          android:value="https://dahai1.github.io/kids-phone-control/index.html" />
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.STATUS_BAR_COLOR"
+                          android:resource="@color/colorPrimaryDark" />
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.NAVIGATION_BAR_COLOR"
+                          android:resource="@color/navigationColor" />
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.SPLASH_IMAGE_DRAWABLE"
+                          android:resource="@drawable/splash" />
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.SPLASH_SCREEN_BACKGROUND_COLOR"
+                          android:resource="@color/backgroundColor" />
+                      <meta-data
+                          android:name="android.support.customtabs.trusted.FILE_PROVIDER_AUTHORITY"
+                          android:value="app.kidscontrol.phonetimer.fileprovider" />
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                      <intent-filter android:autoVerify="true">
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.BROWSABLE" />
+                          <data
+                              android:scheme="https"
+                              android:host="dahai1.github.io"
+                              android:pathPrefix="/kids-phone-control" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          # ---- res/values/colors.xml ----
+          cat > $DIR/app/src/main/res/values/colors.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="colorPrimary">#1A1A2E</color>
+              <color name="colorPrimaryDark">#000000</color>
+              <color name="navigationColor">#000000</color>
+              <color name="backgroundColor">#1A1A2E</color>
+          </resources>
+          EOF
+
+          # ---- res/values/styles.xml ----
+          cat > $DIR/app/src/main/res/values/styles.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.KidsControl" parent="android:Theme.Material.NoActionBar">
+                  <item name="android:statusBarColor">@color/colorPrimaryDark</item>
+                  <item name="android:navigationBarColor">@color/navigationColor</item>
+              </style>
+          </resources>
+          EOF
+
+          # ---- splash screen drawable ----
+          cat > $DIR/app/src/main/res/drawable/splash.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+              <item android:drawable="@color/backgroundColor" />
+          </layer-list>
+          EOF
+
+          # ---- assetlinks.json placeholder ----
+          mkdir -p $DIR/app/src/main/assets
+          cat > $DIR/app/src/main/assets/assetlinks.json << 'EOF'
+          [{
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+              "namespace": "android_app",
+              "package_name": "app.kidscontrol.phonetimer",
+              "sha256_cert_fingerprints": ["REPLACE_WITH_YOUR_FINGERPRINT"]
+            }
+          }]
+          EOF
+
+          # ---- Download gradle wrapper ----
+          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip -O /tmp/gradle.zip
+          echo "Gradle downloaded"
+
+      - name: Generate keystore
         run: |
-          cd twa-build
           keytool -genkey -v \
-            -keystore android.keystore \
+            -keystore twa-project/app/release.keystore \
             -alias kidscontrol \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android \
             -keypass android \
-            -dname "CN=Kids Control, OU=App, O=KidsControl, L=Beijing, ST=Beijing, C=CN" \
+            -dname "CN=KidsControl, OU=App, O=KidsControl, L=Beijing, ST=Beijing, C=CN" \
             -noprompt
 
-      - name: Build APK
+      - name: Build APK with gradle
         run: |
-          cd twa-build
-          bubblewrap build
+          cd twa-project
+          # Use gradle wrapper from Android SDK or install it
+          if [ ! -f gradlew ]; then
+            gradle wrapper --gradle-version 8.5 2>/dev/null || true
+          fi
+          # If gradle not available, install via sdkman
+          if ! command -v gradle &> /dev/null; then
+            curl -s https://get.sdkman.io | bash
+            source "$HOME/.sdkman/bin/sdkman-init.sh"
+            sdk install gradle 8.5
+          fi
+          gradle wrapper --gradle-version 8.5
+          ./gradlew assembleRelease --no-daemon
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: kids-control-apk
-          path: twa-build/app/build/outputs/apk/release/*.apk
+          path: twa-project/app/build/outputs/apk/release/*.apk
           if-no-files-found: warn
