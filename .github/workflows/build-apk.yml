@@ -25,30 +25,23 @@ jobs:
 
       - name: Create Android project
         run: |
-          APP="app.kidscontrol.phonetimer"
+          PKG="app.kidscontrol.phonetimer"
           DIR="twa-project"
 
           mkdir -p $DIR/app/src/main/java/app/kidscontrol/phonetimer
           mkdir -p $DIR/app/src/main/res/values
-          mkdir -p $DIR/app/src/main/res/mipmap-anydpi-v26
           mkdir -p $DIR/app/src/main/res/drawable
-          mkdir -p $DIR/gradle/wrapper
+          mkdir -p $DIR/app/src/main/res/raw
+          mkdir -p $DIR/app/src/main/assets
 
           # ---- settings.gradle ----
           cat > $DIR/settings.gradle << 'EOF'
           pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
           }
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
+              repositories { google(); mavenCentral() }
           }
           rootProject.name = "KidsControl"
           include ":app"
@@ -69,18 +62,16 @@ jobs:
 
           # ---- app/build.gradle ----
           cat > $DIR/app/build.gradle << 'EOF'
-          plugins {
-              id 'com.android.application'
-          }
+          plugins { id 'com.android.application' }
           android {
               namespace "app.kidscontrol.phonetimer"
               compileSdk 34
               defaultConfig {
                   applicationId "app.kidscontrol.phonetimer"
-                  minSdk 21
+                  minSdk 24
                   targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
+                  versionCode 3
+                  versionName "2.0"
               }
               signingConfigs {
                   release {
@@ -103,103 +94,653 @@ jobs:
           }
           dependencies {
               implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+              implementation 'androidx.core:core:1.12.0'
           }
           EOF
 
-          # ---- AndroidManifest.xml ----
+          # ================================================================
+          # MainActivity.java — WebView容器 + JS Bridge
+          # ================================================================
+          cat > $DIR/app/src/main/java/app/kidscontrol/phonetimer/MainActivity.java << 'JAVAEOF'
+          package app.kidscontrol.phonetimer;
+
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.PowerManager;
+          import android.provider.Settings;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Toast;
+          import androidx.core.app.ActivityCompat;
+          import android.Manifest;
+          import android.content.pm.PackageManager;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  // 请求必要权限
+                  requestOverlayPermission();
+                  requestBatteryOptimization();
+
+                  webView = new WebView(this);
+                  webView.getSettings().setJavaScriptEnabled(true);
+                  webView.getSettings().setDomStorageEnabled(true);
+                  webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+                  webView.addJavascriptInterface(new TimerBridge(), "AndroidTimer");
+                  webView.setWebViewClient(new WebViewClient());
+
+                  // 检查是否从通知点击进入(超时了)
+                  boolean fromAlarm = getIntent().getBooleanExtra("from_alarm", false);
+                  String url = "https://dahai1.github.io/kids-phone-control/index.html";
+                  if (fromAlarm) {
+                      url += "?overlay=1";
+                  }
+                  webView.loadUrl(url);
+
+                  setContentView(webView);
+              }
+
+              // JS Bridge: PWA调用原生计时器
+              public class TimerBridge {
+                  @JavascriptInterface
+                  public void startTimer(int minutes) {
+                      Intent intent = new Intent(MainActivity.this, TimerService.class);
+                      intent.setAction("START");
+                      intent.putExtra("minutes", minutes);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          startForegroundService(intent);
+                      } else {
+                          startService(intent);
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public void stopTimer() {
+                      Intent intent = new Intent(MainActivity.this, TimerService.class);
+                      intent.setAction("STOP");
+                      startService(intent);
+                  }
+
+                  @JavascriptInterface
+                  public void resetTimer() {
+                      Intent intent = new Intent(MainActivity.this, TimerService.class);
+                      intent.setAction("RESET");
+                      startService(intent);
+                  }
+
+                  @JavascriptInterface
+                  public int getRemainingSeconds() {
+                      return TimerService.remainingSeconds;
+                  }
+
+                  @JavascriptInterface
+                  public boolean isTimerRunning() {
+                      return TimerService.isRunning;
+                  }
+              }
+
+              // 请求悬浮窗权限
+              private void requestOverlayPermission() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                      if (!Settings.canDrawOverlays(this)) {
+                          Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                              Uri.parse("package:" + getPackageName()));
+                          startActivityForResult(intent, 100);
+                      }
+                  }
+              }
+
+              // 请求忽略电池优化
+              private void requestBatteryOptimization() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                      PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                      if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                          Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                          intent.setData(Uri.parse("package:" + getPackageName()));
+                          startActivity(intent);
+                      }
+                  }
+              }
+          }
+          JAVAEOF
+
+          # ================================================================
+          # TimerService.java — 前台服务，系统级倒计时
+          # ================================================================
+          cat > $DIR/app/src/main/java/app/kidscontrol/phonetimer/TimerService.java << 'JAVAEOF'
+          package app.kidscontrol.phonetimer;
+
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.PendingIntent;
+          import android.app.Service;
+          import android.content.Intent;
+          import android.os.Build;
+          import android.os.CountDownTimer;
+          import android.os.IBinder;
+          import androidx.core.app.NotificationCompat;
+
+          public class TimerService extends Service {
+              private static final String CHANNEL_ID = "timer_channel";
+              private static final int NOTIFY_ID = 1;
+              private CountDownTimer countDownTimer;
+
+              public static long remainingMillis = 0;
+              public static int remainingSeconds = 0;
+              public static boolean isRunning = false;
+              public static boolean isPaused = false;
+
+              @Override
+              public void onCreate() {
+                  super.onCreate();
+                  createNotificationChannel();
+              }
+
+              @Override
+              public int onStartCommand(Intent intent, int flags, int startId) {
+                  String action = intent.getAction();
+
+                  if ("STOP".equals(action)) {
+                      stopCountdown();
+                      stopSelf();
+                      return START_NOT_STICKY;
+                  }
+                  if ("RESET".equals(action)) {
+                      stopCountdown();
+                      stopForeground(true);
+                      stopSelf();
+                      return START_NOT_STICKY;
+                  }
+
+                  if ("START".equals(action)) {
+                      int minutes = intent.getIntExtra("minutes", 30);
+                      startCountdown(minutes);
+                  }
+
+                  return START_STICKY;
+              }
+
+              private void startCountdown(int minutes) {
+                  stopCountdown();
+                  long totalMillis = minutes * 60L * 1000L;
+
+                  isRunning = true;
+                  isPaused = false;
+                  remainingMillis = totalMillis;
+
+                  countDownTimer = new CountDownTimer(totalMillis, 1000) {
+                      @Override
+                      public void onTick(long millisUntilFinished) {
+                          remainingMillis = millisUntilFinished;
+                          remainingSeconds = (int)(millisUntilFinished / 1000);
+                          updateNotification();
+                      }
+
+                      @Override
+                      public void onFinish() {
+                          remainingMillis = 0;
+                          remainingSeconds = 0;
+                          isRunning = false;
+                          // 时间到！启动全屏来电弹窗
+                          launchOverlay();
+                          stopForeground(true);
+                          stopSelf();
+                      }
+                  }.start();
+
+                  // 前台通知，防止系统杀进程
+                  startForeground(NOTIFY_ID, buildNotification("管控运行中", "剩余 " + minutes + " 分钟"));
+              }
+
+              private void stopCountdown() {
+                  if (countDownTimer != null) {
+                      countDownTimer.cancel();
+                      countDownTimer = null;
+                  }
+                  isRunning = false;
+                  isPaused = false;
+                  remainingMillis = 0;
+                  remainingSeconds = 0;
+              }
+
+              // 启动全屏警察叔叔来电界面
+              private void launchOverlay() {
+                  Intent overlayIntent = new Intent(this, OverlayActivity.class);
+                  overlayIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                  overlayIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  startActivity(overlayIntent);
+              }
+
+              private void updateNotification() {
+                  int mins = remainingSeconds / 60;
+                  int secs = remainingSeconds % 60;
+                  String time = String.format("%02d:%02d", mins, secs);
+                  Notification notif = buildNotification("管控运行中", "剩余 " + time);
+                  NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                  nm.notify(NOTIFY_ID, notif);
+              }
+
+              private Notification buildNotification(String title, String text) {
+                  Intent intent = new Intent(this, MainActivity.class);
+                  PendingIntent pi = PendingIntent.getActivity(this, 0, intent,
+                      PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+
+                  return new NotificationCompat.Builder(this, CHANNEL_ID)
+                      .setContentTitle(title)
+                      .setContentText(text)
+                      .setSmallIcon(android.R.drawable.ic_dialog_info)
+                      .setContentIntent(pi)
+                      .setOngoing(true)
+                      .setPriority(NotificationCompat.PRIORITY_HIGH)
+                      .build();
+              }
+
+              private void createNotificationChannel() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      NotificationChannel channel = new NotificationChannel(
+                          CHANNEL_ID, "计时器", NotificationManager.IMPORTANCE_HIGH);
+                      channel.setDescription("儿童管控计时器通知");
+                      NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                      nm.createNotificationChannel(channel);
+                  }
+              }
+
+              @Override
+              public IBinder onBind(Intent intent) { return null; }
+          }
+          JAVAEOF
+
+          # ================================================================
+          # OverlayActivity.java — 全屏警察叔叔来电（系统级弹窗）
+          # ================================================================
+          cat > $DIR/app/src/main/java/app/kidscontrol/phonetimer/OverlayActivity.java << 'JAVAEOF'
+          package app.kidscontrol.phonetimer;
+
+          import android.app.Activity;
+          import android.content.Context;
+          import android.graphics.Color;
+          import android.media.AudioAttributes;
+          import android.media.SoundPool;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.os.VibrationEffect;
+          import android.os.Vibrator;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.speech.tts.TextToSpeech;
+          import android.view.KeyEvent;
+          import android.view.View;
+          import android.view.WindowInsets;
+          import android.view.WindowInsetsController;
+          import android.view.WindowManager;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.Button;
+          import android.widget.EditText;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+          android.widget.ScrollView;
+          android.widget.Toast;
+          android.text.InputType;
+          android.view.Gravity;
+          java.util.Locale;
+          java.util.Random;
+
+          public class OverlayActivity extends Activity {
+              private String verifyCode;
+              private EditText inputCode;
+              private Vibrator vibrator;
+              private TextToSpeech tts;
+              private Handler handler;
+              private Runnable vibrateRunnable;
+              private int speechIndex = 0;
+              private final String[] speechLines = {
+                  "嗨！",
+                  "小朋友你好！你的手机使用时间已经到了哦。长时间看手机会伤害眼睛，快放下手机，去做做运动、看看远方，保护好你的明亮大眼睛！听话的小朋友才是好孩子哦。"
+              };
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  // 设置全屏+覆盖状态栏+锁屏显示+保持屏幕
+                  getWindow().addFlags(
+                      WindowManager.LayoutParams.FLAG_FULLSCREEN |
+                      WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON |
+                      WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD |
+                      WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED |
+                      WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                  );
+
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                      getWindow().getAttributes().layoutInDisplayCutoutMode =
+                          WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                  }
+
+                  // 隐藏系统UI
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                      getWindow().setDecorFitsSystemWindows(false);
+                      WindowInsetsController wic = getWindow().getInsetsController();
+                      if (wic != null) {
+                          wic.hide(WindowInsets.Type.systemBars());
+                          wic.setSystemBarsBehavior(
+                              WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                      }
+                  } else {
+                      getWindow().getDecorView().setSystemUiVisibility(
+                          View.SYSTEM_UI_FLAG_FULLSCREEN |
+                          View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                          View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
+                          View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
+                          View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
+                          View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                      );
+                  }
+
+                  // 生成验证码
+                  verifyCode = String.valueOf(1000 + new Random().nextInt(9000));
+
+                  // 构建原生UI
+                  buildNativeUI();
+
+                  // 震动
+                  vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+                  handler = new Handler(Looper.getMainLooper());
+                  startVibration();
+
+                  // TTS语音
+                  initTTS();
+              }
+
+              private void buildNativeUI() {
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setGravity(Gravity.CENTER_HORIZONTAL);
+                  root.setBackgroundColor(Color.BLACK);
+
+                  // 红色警报条
+                  TextView alertBar = new TextView(this);
+                  alertBar.setText("⚠ 使用时间已到 ⚠");
+                  alertBar.setTextColor(Color.WHITE);
+                  alertBar.setBackgroundColor(Color.rgb(204, 0, 0));
+                  alertBar.setGravity(Gravity.CENTER);
+                  alertBar.setPadding(0, 16, 0, 16);
+                  alertBar.setTextSize(14);
+
+                  ScrollView scroll = new ScrollView(this);
+                  LinearLayout content = new LinearLayout(this);
+                  content.setOrientation(LinearLayout.VERTICAL);
+                  content.setGravity(Gravity.CENTER_HORIZONTAL);
+                  content.setPadding(40, 60, 40, 40);
+
+                  // 来电标题
+                  TextView title = new TextView(this);
+                  title.setText("📞 来电：警察叔叔 👮");
+                  title.setTextColor(Color.WHITE);
+                  title.setTextSize(22);
+                  title.setGravity(Gravity.CENTER);
+                  title.setPadding(0, 20, 0, 8);
+
+                  // 警察表情
+                  TextView avatar = new TextView(this);
+                  avatar.setText("👮‍♂️");
+                  avatar.setTextSize(80);
+                  avatar.setGravity(Gravity.CENTER);
+
+                  // 通话状态
+                  TextView status = new TextView(this);
+                  status.setText("● 通话中 · 04:32");
+                  status.setTextColor(Color.rgb(0, 255, 136));
+                  status.setTextSize(13);
+                  status.setGravity(Gravity.CENTER);
+                  status.setPadding(0, 8, 0, 20);
+
+                  // 劝导文字
+                  TextView msg = new TextView(this);
+                  msg.setText("小朋友你好！\n你的手机使用时间已经到了哦~\n长时间看手机会伤害眼睛，\n快放下手机，去做做运动、看看远方，\n保护好你的明亮大眼睛！👀");
+                  msg.setTextColor(Color.rgb(255, 217, 61));
+                  msg.setTextSize(15);
+                  msg.setGravity(Gravity.CENTER);
+                  msg.setPadding(0, 10, 0, 30);
+                  msg.setLineSpacing(8, 1);
+
+                  // 验证码显示
+                  TextView codeLabel = new TextView(this);
+                  codeLabel.setText("🔒 家长专属验证");
+                  codeLabel.setTextColor(Color.GRAY);
+                  codeLabel.setTextSize(12);
+                  codeLabel.setGravity(Gravity.CENTER);
+
+                  TextView codeDisplay = new TextView(this);
+                  codeDisplay.setText(verifyCode);
+                  codeDisplay.setTextColor(Color.rgb(255, 217, 61));
+                  codeDisplay.setTextSize(32);
+                  codeDisplay.setGravity(Gravity.CENTER);
+                  codeDisplay.setLetterSpacing(0.3f);
+                  codeDisplay.setPadding(0, 8, 0, 16);
+
+                  // 输入框
+                  inputCode = new EditText(this);
+                  inputCode.setHint("输入验证码");
+                  inputCode.setTextColor(Color.WHITE);
+                  inputCode.setHintTextColor(Color.GRAY);
+                  inputCode.setBackgroundColor(Color.rgb(30, 30, 30));
+                  inputCode.setInputType(InputType.TYPE_CLASS_NUMBER);
+                  inputCode.setGravity(Gravity.CENTER);
+                  inputCode.setPadding(8, 12, 8, 12);
+                  LinearLayout.LayoutParams inputLP = new LinearLayout.LayoutParams(200, LinearLayout.LayoutParams.WRAP_CONTENT);
+                  inputLP.setMargins(0, 0, 0, 16);
+                  inputCode.setLayoutParams(inputLP);
+
+                  // 确认按钮
+                  Button confirmBtn = new Button(this);
+                  confirmBtn.setText("家长确认关闭");
+                  confirmBtn.setTextColor(Color.LTGRAY);
+                  confirmBtn.setBackgroundColor(Color.rgb(50, 50, 50));
+                  confirmBtn.setOnClickListener(v -> {
+                      if (inputCode.getText().toString().equals(verifyCode)) {
+                          stopAndFinish();
+                      } else {
+                          inputCode.setText("");
+                          Toast.makeText(this, "验证码错误", Toast.LENGTH_SHORT).show();
+                      }
+                  });
+
+                  // 提示
+                  TextView hint = new TextView(this);
+                  hint.setText("⬆ 请家长输入上方4位数字验证关闭 ⬆");
+                  hint.setTextColor(Color.rgb(85, 85, 85));
+                  hint.setTextSize(11);
+                  hint.setGravity(Gravity.CENTER);
+                  hint.setPadding(0, 10, 0, 0);
+
+                  content.addView(title);
+                  content.addView(avatar);
+                  content.addView(status);
+                  content.addView(msg);
+                  content.addView(codeLabel);
+                  content.addView(codeDisplay);
+                  content.addView(inputCode);
+                  content.addView(confirmBtn);
+                  content.addView(hint);
+
+                  scroll.addView(content);
+
+                  root.addView(alertBar);
+                  root.addView(scroll, new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+
+                  setContentView(root);
+              }
+
+              @Override
+              public void onBackPressed() {
+                  // 禁止返回键
+              }
+
+              @Override
+              public boolean onKeyDown(int keyCode, KeyEvent event) {
+                  // 禁止音量键以外的所有按键
+                  if (keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+                      keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                      return super.onKeyDown(keyCode, event);
+                  }
+                  return true;
+              }
+
+              @Override
+              protected void onUserLeaveHint() {
+                  // 用户按Home键，重新拉回
+                  Intent intent = new Intent(this, OverlayActivity.class);
+                  intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                  startActivity(intent);
+              }
+
+              private void startVibration() {
+                  vibrateRunnable = new Runnable() {
+                      @Override
+                      public void run() {
+                          if (vibrator != null && !isFinishing()) {
+                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                  vibrator.vibrate(VibrationEffect.createWaveform(
+                                      new long[]{300, 150, 300, 150, 500}, -1));
+                              } else {
+                                  vibrator.vibrate(new long[]{300, 150, 300, 150, 500}, -1);
+                              }
+                              handler.postDelayed(this, 4000);
+                          }
+                      }
+                  };
+                  handler.post(vibrateRunnable);
+              }
+
+              private void initTTS() {
+                  tts = new TextToSpeech(this, status -> {
+                      if (status == TextToSpeech.SUCCESS) {
+                          tts.setLanguage(Locale.CHINESE);
+                          tts.setSpeechRate(0.9f);
+                          tts.setPitch(1.1f);
+                          speakNext();
+                      }
+                  });
+              }
+
+              private void speakNext() {
+                  if (speechIndex < speechLines.length && tts != null && !isFinishing()) {
+                      tts.speak(speechLines[speechIndex], TextToSpeech.QUEUE_FLUSH, null, "speech" + speechIndex);
+                      speechIndex++;
+                      handler.postDelayed(() -> speakNext(), speechIndex == 1 ? 2500 : 500);
+                  }
+              }
+
+              private void stopAndFinish() {
+                  if (vibrator != null) vibrator.cancel();
+                  if (handler != null) handler.removeCallbacksAndMessages(null);
+                  if (tts != null) { tts.stop(); tts.shutdown(); }
+                  TimerService.isRunning = false;
+                  TimerService.remainingSeconds = 0;
+                  finish();
+              }
+
+              @Override
+              protected void onDestroy() {
+                  super.onDestroy();
+                  if (vibrator != null) vibrator.cancel();
+                  if (handler != null) handler.removeCallbacksAndMessages(null);
+                  if (tts != null) { tts.stop(); tts.shutdown(); }
+              }
+          }
+          JAVAEOF
+
+          # ================================================================
+          # AndroidManifest.xml
+          # ================================================================
           cat > $DIR/app/src/main/AndroidManifest.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <!-- 悬浮窗权限 -->
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <!-- 前台服务 -->
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+              <!-- 通知 -->
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <!-- 震动 -->
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <!-- 唤醒锁 -->
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <!-- 网络 -->
+              <uses-permission android:name="android.permission.INTERNET" />
+
               <application
                   android:allowBackup="true"
                   android:label="儿童管控"
                   android:supportsRtl="true"
-                  android:theme="@style/Theme.KidsControl">
+                  android:usesCleartextTraffic="true">
+
+                  <!-- 主Activity: WebView PWA -->
                   <activity
-                      android:name="com.google.androidbrowserhelper.trusted.LauncherActivity"
-                      android:exported="true">
-                      <meta-data
-                          android:name="android.support.customtabs.trusted.DEFAULT_URL"
-                          android:value="https://dahai1.github.io/kids-phone-control/index.html" />
-                      <meta-data
-                          android:name="android.support.customtabs.trusted.STATUS_BAR_COLOR"
-                          android:resource="@color/colorPrimaryDark" />
-                      <meta-data
-                          android:name="android.support.customtabs.trusted.NAVIGATION_BAR_COLOR"
-                          android:resource="@color/navigationColor" />
-                      <meta-data
-                          android:name="android.support.customtabs.trusted.SPLASH_IMAGE_DRAWABLE"
-                          android:resource="@drawable/splash" />
-                      <meta-data
-                          android:name="android.support.customtabs.trusted.SPLASH_SCREEN_BACKGROUND_COLOR"
-                          android:resource="@color/backgroundColor" />
-                      <meta-data
-                          android:name="android.support.customtabs.trusted.FILE_PROVIDER_AUTHORITY"
-                          android:value="app.kidscontrol.phonetimer.fileprovider" />
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+                      android:theme="@style/Theme.KidsControl">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
-                      <intent-filter android:autoVerify="true">
-                          <action android:name="android.intent.action.VIEW" />
-                          <category android:name="android.intent.category.DEFAULT" />
-                          <category android:name="android.intent.category.BROWSABLE" />
-                          <data
-                              android:scheme="https"
-                              android:host="dahai1.github.io"
-                              android:pathPrefix="/kids-phone-control" />
-                      </intent-filter>
                   </activity>
+
+                  <!-- 全屏来电弹窗Activity -->
+                  <activity
+                      android:name=".OverlayActivity"
+                      android:exported="false"
+                      android:excludeFromRecents="true"
+                      android:launchMode="singleInstance"
+                      android:showWhenLocked="true"
+                      android:turnScreenOn="true"
+                      android:taskAffinity=""
+                      android:theme="@style/Theme.Overlay" />
+
+                  <!-- 前台计时服务 -->
+                  <service
+                      android:name=".TimerService"
+                      android:exported="false"
+                      android:foregroundServiceType="specialUse" />
+
               </application>
           </manifest>
           EOF
 
-          # ---- res/values/colors.xml ----
-          cat > $DIR/app/src/main/res/values/colors.xml << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <color name="colorPrimary">#1A1A2E</color>
-              <color name="colorPrimaryDark">#000000</color>
-              <color name="navigationColor">#000000</color>
-              <color name="backgroundColor">#1A1A2E</color>
-          </resources>
-          EOF
-
-          # ---- res/values/styles.xml ----
-          cat > $DIR/app/src/main/res/values/styles.xml << 'EOF'
+          # ---- res/values/themes.xml ----
+          cat > $DIR/app/src/main/res/values/themes.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
               <style name="Theme.KidsControl" parent="android:Theme.Material.NoActionBar">
-                  <item name="android:statusBarColor">@color/colorPrimaryDark</item>
-                  <item name="android:navigationBarColor">@color/navigationColor</item>
+                  <item name="android:statusBarColor">#000000</item>
+                  <item name="android:navigationBarColor">#000000</item>
+              </style>
+              <style name="Theme.Overlay" parent="android:Theme.Material.NoActionBar">
+                  <item name="android:windowFullscreen">true</item>
+                  <item name="android:windowNoTitle">true</item>
+                  <item name="android:statusBarColor">#000000</item>
+                  <item name="android:navigationBarColor">#000000</item>
               </style>
           </resources>
           EOF
 
-          # ---- splash screen drawable ----
-          cat > $DIR/app/src/main/res/drawable/splash.xml << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-              <item android:drawable="@color/backgroundColor" />
-          </layer-list>
-          EOF
-
-          # ---- assetlinks.json placeholder ----
-          mkdir -p $DIR/app/src/main/assets
-          cat > $DIR/app/src/main/assets/assetlinks.json << 'EOF'
-          [{
-            "relation": ["delegate_permission/common.handle_all_urls"],
-            "target": {
-              "namespace": "android_app",
-              "package_name": "app.kidscontrol.phonetimer",
-              "sha256_cert_fingerprints": ["REPLACE_WITH_YOUR_FINGERPRINT"]
-            }
-          }]
-          EOF
-
           # ---- Download gradle wrapper ----
-          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip -O /tmp/gradle.zip
-          echo "Gradle downloaded"
+          cd $DIR
+          gradle wrapper --gradle-version 8.5 2>/dev/null || true
 
       - name: Generate keystore
         run: |
@@ -215,11 +756,6 @@ jobs:
       - name: Build APK with gradle
         run: |
           cd twa-project
-          # Use gradle wrapper from Android SDK or install it
-          if [ ! -f gradlew ]; then
-            gradle wrapper --gradle-version 8.5 2>/dev/null || true
-          fi
-          # If gradle not available, install via sdkman
           if ! command -v gradle &> /dev/null; then
             curl -s https://get.sdkman.io | bash
             source "$HOME/.sdkman/bin/sdkman-init.sh"
