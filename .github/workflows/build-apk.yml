@@ -388,12 +388,12 @@ jobs:
           import android.widget.EditText;
           import android.widget.LinearLayout;
           import android.widget.TextView;
-          android.widget.ScrollView;
-          android.widget.Toast;
-          android.text.InputType;
-          android.view.Gravity;
-          java.util.Locale;
-          java.util.Random;
+          import android.widget.ScrollView;
+          import android.widget.Toast;
+          import android.text.InputType;
+          import android.view.Gravity;
+          import java.util.Locale;
+          import java.util.Random;
 
           public class OverlayActivity extends Activity {
               private String verifyCode;
