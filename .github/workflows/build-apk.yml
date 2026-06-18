@@ -54,8 +54,8 @@ jobs:
           }
           MANIFESTEOF
 
-          # Pipe "n" to answer "No" to JDK install prompt
-          echo "n" | bubblewrap init --manifest "https://dahai1.github.io/kids-phone-control/manifest.json" --directory .
+          # Answer both prompts: n (no JDK install) + JDK path
+          printf "n\n$JAVA_HOME\n" | bubblewrap init --manifest "https://dahai1.github.io/kids-phone-control/manifest.json" --directory .
 
       - name: Generate signing key
         run: |
